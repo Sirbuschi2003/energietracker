@@ -3,6 +3,10 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
+const { execFile } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -316,21 +320,86 @@ function extractTariffFromText(text) {
   return { type, provider, tariff_name, working_price, base_price, grid_working_price, grid_base_price, meter_fee, sewage_price, tax_rate, prices_gross, valid_from, valid_to };
 }
 
+function tmpFile(ext) {
+  return path.join(os.tmpdir(), `et_${crypto.randomBytes(6).toString('hex')}${ext}`);
+}
+
+function run(cmd, args) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+async function ocrImage(imageBuffer) {
+  const imgPath = tmpFile('.jpg');
+  const outBase = tmpFile('');
+  try {
+    fs.writeFileSync(imgPath, imageBuffer);
+    await run('tesseract', [imgPath, outBase, '-l', 'deu+eng', '--oem', '3', '--psm', '3']);
+    return fs.readFileSync(outBase + '.txt', 'utf8');
+  } finally {
+    for (const f of [imgPath, outBase + '.txt']) try { fs.unlinkSync(f); } catch(e) {}
+  }
+}
+
+async function ocrScannedPdf(pdfBuffer) {
+  const pdfPath = tmpFile('.pdf');
+  const outPrefix = tmpFile('');
+  let pages = [];
+  try {
+    fs.writeFileSync(pdfPath, pdfBuffer);
+    // Convert first 4 pages to JPEG (150dpi is enough for text recognition)
+    await run('pdftoppm', ['-r', '150', '-jpeg', '-l', '4', pdfPath, outPrefix]);
+    pages = fs.readdirSync(os.tmpdir())
+      .filter(f => f.startsWith(path.basename(outPrefix)) && f.endsWith('.jpg'))
+      .sort()
+      .map(f => path.join(os.tmpdir(), f));
+
+    const texts = await Promise.all(pages.map(async p => {
+      const buf = fs.readFileSync(p);
+      return ocrImage(buf);
+    }));
+    return texts.join('\n');
+  } finally {
+    for (const f of [pdfPath, ...pages]) try { fs.unlinkSync(f); } catch(e) {}
+  }
+}
+
 app.post('/api/tariffs/extract', upload.single('document'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Keine Datei hochgeladen' });
 
-  if (req.file.mimetype !== 'application/pdf')
-    return res.status(400).json({ error: 'Nur PDF-Dateien werden unterstützt. Fotos/Scans können nicht automatisch ausgelesen werden.' });
+  const mime = req.file.mimetype;
+  const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/tiff'];
+  if (!allowed.includes(mime))
+    return res.status(400).json({ error: 'Nur PDF, JPG, PNG oder WEBP erlaubt' });
 
   try {
-    const pdf = await pdfParse(req.file.buffer);
-    if (!pdf.text || pdf.text.trim().length < 50)
-      return res.status(422).json({ error: 'PDF enthält keinen lesbaren Text (gescanntes Dokument?)' });
+    let text = '';
 
-    const data = extractTariffFromText(pdf.text);
-    res.json(data);
+    if (mime === 'application/pdf') {
+      // Try text extraction first (fast, no OCR needed)
+      const pdf = await pdfParse(req.file.buffer);
+      if (pdf.text && pdf.text.trim().length > 80) {
+        text = pdf.text;
+      } else {
+        // Scanned PDF → convert to images → OCR
+        text = await ocrScannedPdf(req.file.buffer);
+      }
+    } else {
+      // Image → OCR directly
+      text = await ocrImage(req.file.buffer);
+    }
+
+    if (!text || text.trim().length < 30)
+      return res.status(422).json({ error: 'Kein Text erkannt. Bitte ein klareres Bild oder eine bessere PDF-Qualität verwenden.' });
+
+    const data = extractTariffFromText(text);
+    res.json({ ...data, _source: mime === 'application/pdf' ? 'pdf' : 'ocr' });
   } catch(e) {
-    res.status(500).json({ error: 'PDF konnte nicht gelesen werden: ' + e.message });
+    res.status(500).json({ error: 'Dokument konnte nicht verarbeitet werden: ' + e.message });
   }
 });
 

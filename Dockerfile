@@ -1,7 +1,11 @@
 FROM node:20-alpine
 
-# Build tools needed for better-sqlite3 native compilation
-RUN apk add --no-cache python3 make g++
+# Build tools + OCR + PDF tools
+RUN apk add --no-cache python3 make g++ \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-data-deu \
+    && apk add --no-cache tesseract-ocr-data-eng || true
 
 WORKDIR /app
 

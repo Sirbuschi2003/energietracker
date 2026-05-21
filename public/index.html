@@ -1380,9 +1380,9 @@ function tariffForm(t = {}, meterType) {
 
   return `
   <div class="upload-zone" onclick="document.getElementById('doc-upload').click()" id="upload-zone">
-    <input type="file" id="doc-upload" accept=".pdf,.jpg,.jpeg,.png,.webp" onchange="extractFromDoc(this)">
-    <div>📄 Vertragsdokument hochladen (PDF, Foto)</div>
-    <div class="upload-status color-muted">Tarif-Daten werden automatisch erkannt</div>
+    <input type="file" id="doc-upload" accept=".pdf,.jpg,.jpeg,.png,.webp,.tiff" onchange="extractFromDoc(this)">
+    <div>📄 Vertragsdokument hochladen</div>
+    <div class="upload-status color-muted">PDF, Foto oder Scan — Tarif-Daten werden automatisch erkannt</div>
   </div>
   <div class="form-grid form-grid-2">
     <div class="form-group">
