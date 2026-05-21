@@ -508,6 +508,66 @@ textarea { resize: vertical; min-height: 64px; }
 .toast.toast-err { border-color: var(--red); color: var(--red); }
 .tariff-unit-hint { font-size: 11px; color: var(--text3); margin-top: 3px; }
 .divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+.tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+.tab-btn {
+  padding: 9px 18px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text2);
+  margin-bottom: -1px;
+  transition: all 0.15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+/* ── Range Result ─────────────────────────────────────────────────────────── */
+.range-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.range-seg {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 14px 18px;
+  margin-bottom: 10px;
+}
+.range-seg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.range-seg-meter { font-weight: 600; font-size: 14px; }
+.range-seg-period { font-size: 11px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+.range-seg-body { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.range-seg-cons { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.range-seg-info { font-size: 12px; color: var(--text2); }
+.range-total {
+  background: var(--cyan-dim);
+  border: 1px solid var(--cyan);
+  border-radius: var(--r2);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.range-total-label { font-size: 15px; font-weight: 600; color: var(--cyan); }
+.range-total-vals { display: flex; gap: 32px; align-items: center; flex-wrap: wrap; }
+.range-total-cons { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; color: var(--text); }
+.range-total-cost { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; color: var(--cyan); }
 </style>
 </head>
 <body>
@@ -1379,33 +1439,41 @@ async function deleteTariff(id) {
 }
 
 // ── Billing ──────────────────────────────────────────────────────────────────
-async function renderBilling() {
+async function renderBilling(tab) {
   S.properties = await GET('/api/properties');
   S.allMeters  = await GET('/api/meters');
 
   const meter = S.allMeters.find(m => m.id === S.selectedMeterId);
   const prop  = S.properties.find(p => p.id === S.selectedPropertyId);
+  const activeTab = tab || 'single';
 
-  setBreadcrumb(meter
-    ? `<span class="bc-link" onclick="navigate('properties')">Objekte</span>
-       <span class="bc-sep">›</span>
-       <span class="bc-link" onclick="navigate('meters',${prop?.id})">${prop?.name}</span>
-       <span class="bc-sep">›</span>
-       <span class="bc-current">Abrechnung: ${meter.name}</span>`
-    : 'Abrechnung');
+  setBreadcrumb('Abrechnung');
   setTopActions('');
 
   const meterOpts = S.allMeters.map(m =>
-    `<option value="${m.id}" ${(S.selectedMeterId) == m.id ? 'selected' : ''}>${m.property_name ? m.property_name + ' – ' : ''}${m.name}</option>`
+    `<option value="${m.id}" ${S.selectedMeterId == m.id ? 'selected' : ''}>${m.property_name ? m.property_name + ' – ' : ''}${m.name}</option>`
   ).join('');
+
+  const propOpts = S.properties.map(p =>
+    `<option value="${p.id}" ${S.selectedPropertyId == p.id ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+
+  const yearAgo = new Date(); yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+  const defaultFrom = yearAgo.toISOString().slice(0, 10);
 
   setContent(`
     <div class="page-header">
       <div class="page-title">Kostenabrechnung</div>
-      <div class="page-desc">Verbrauch und Kosten zwischen zwei Ablesungen berechnen</div>
+      <div class="page-desc">Verbrauch und Kosten berechnen</div>
     </div>
+    <div class="tab-bar">
+      <button class="tab-btn ${activeTab==='single'?'active':''}" onclick="renderBilling('single')">Einzelabrechnung</button>
+      <button class="tab-btn ${activeTab==='range'?'active':''}" onclick="renderBilling('range')">Periodenabrechnung</button>
+    </div>
+
+    ${activeTab === 'single' ? `
     <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><div class="card-title">Zeitraum auswählen</div></div>
+      <div class="card-header"><div class="card-title">Zwei Ablesungen vergleichen</div></div>
       <div class="form-grid form-grid-2">
         <div class="form-group span-2">
           <label>Zähler</label>
@@ -1425,9 +1493,40 @@ async function renderBilling() {
       </div>
     </div>
     <div id="billing-result"></div>
+    ` : `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><div class="card-title">Zeitraum über mehrere Zähler / Tarife</div></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group">
+          <label>Objekt</label>
+          <select id="r-prop">${propOpts}</select>
+        </div>
+        <div class="form-group">
+          <label>Zählertyp</label>
+          <select id="r-type">
+            <option value="strom">⚡ Strom</option>
+            <option value="gas">🔥 Gas</option>
+            <option value="wasser">💧 Wasser</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Von</label>
+          <input type="date" id="r-from" value="${defaultFrom}">
+        </div>
+        <div class="form-group">
+          <label>Bis</label>
+          <input type="date" id="r-to" value="${todayISO()}">
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-primary" onclick="calcRangeBilling()">📊 Auswertung berechnen</button>
+      </div>
+    </div>
+    <div id="range-result"></div>
+    `}
   `);
 
-  if (S.selectedMeterId) await loadBillingReadings();
+  if (activeTab === 'single' && S.selectedMeterId) await loadBillingReadings();
 }
 
 async function loadBillingReadings() {
@@ -1525,6 +1624,89 @@ function renderBillingResult(r) {
       <button class="btn btn-secondary btn-sm" style="margin-top:12px"
         onclick="navigate('tariffs',${S.selectedPropertyId},${r.meter.id})">Tarif hinzufügen</button>
     </div>`}
+  `;
+}
+
+async function calcRangeBilling() {
+  const prop  = gv('r-prop');
+  const type  = gv('r-type');
+  const from  = gv('r-from');
+  const to    = gv('r-to');
+  if (!prop || !from || !to) { toast('Bitte alle Felder ausfüllen', 'err'); return; }
+  if (from >= to) { toast('Von-Datum muss vor Bis-Datum liegen', 'err'); return; }
+  try {
+    const result = await GET(`/api/consumption/range?property_id=${prop}&type=${type}&from_date=${from}&to_date=${to}`);
+    renderRangeBillingResult(result);
+  } catch(e) { toast('Fehler bei der Berechnung', 'err'); }
+}
+
+function renderRangeBillingResult(r) {
+  const el = document.getElementById('range-result');
+  if (!r || !r.segments || r.segments.length === 0) {
+    el.innerHTML = `<div class="card" style="text-align:center;color:var(--text2);padding:40px">
+      <div class="empty-icon">📋</div>
+      <div style="margin-top:8px">Keine Ablesungen für diesen Zeitraum gefunden.<br>
+      <small>Es werden Ablesungen innerhalb oder direkt vor dem gewählten Zeitraum benötigt.</small></div>
+    </div>`;
+    return;
+  }
+
+  const tc = r.type;
+  const segHtml = r.segments.map(seg => `
+    <div class="range-seg">
+      <div class="range-seg-header">
+        <div>
+          <div class="range-seg-meter">${seg.meter.name}
+            ${seg.meter.meter_number ? `<span class="color-muted" style="font-size:11px;font-weight:400"> · Nr. ${seg.meter.meter_number}</span>` : ''}
+          </div>
+          <div class="range-seg-period">${fmt.date(seg.from.date)} → ${fmt.date(seg.to.date)} · ${seg.days} Tage</div>
+        </div>
+        ${seg.tariff ? `<div style="text-align:right;font-size:11px;color:var(--text3)">${seg.tariff.provider || ''}<br>${seg.tariff.tariff_name || ''}</div>` : ''}
+      </div>
+      <div class="range-seg-body">
+        <div>
+          <div class="range-seg-cons color-${tc}">${fmt.num(seg.consumption)} <span style="font-size:13px;color:var(--text2)">${seg.meter.unit}</span></div>
+          <div class="range-seg-info">Verbrauch</div>
+        </div>
+        <div style="color:var(--text3)">·</div>
+        <div>
+          <div style="font-size:11px;color:var(--text2)">Start</div>
+          <div class="mono" style="font-size:13px">${fmt.num(seg.from.value)} ${seg.meter.unit}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2)">Ende</div>
+          <div class="mono" style="font-size:13px">${fmt.num(seg.to.value)} ${seg.meter.unit}</div>
+        </div>
+        ${seg.cost ? `
+        <div style="margin-left:auto;text-align:right">
+          <div style="font-size:11px;color:var(--text2)">Kosten (brutto)</div>
+          <div class="mono" style="font-size:16px;font-weight:700">${fmt.money(seg.cost.brutto)}</div>
+          <div style="font-size:10px;color:var(--text3)">netto ${fmt.money(seg.cost.netto)}</div>
+        </div>` : `<div style="margin-left:auto;font-size:11px;color:var(--text3)">Kein Tarif hinterlegt</div>`}
+      </div>
+    </div>
+  `).join('');
+
+  el.innerHTML = `
+    ${segHtml}
+    <div class="range-total">
+      <div class="range-total-label">Gesamt ${fmt.date(r.from_date)} – ${fmt.date(r.to_date)}</div>
+      <div class="range-total-vals">
+        <div>
+          <div style="font-size:11px;color:var(--text2)">Gesamtverbrauch</div>
+          <div class="range-total-cons">${fmt.num(r.total_consumption)} ${r.unit}</div>
+        </div>
+        ${r.total_cost ? `
+        <div>
+          <div style="font-size:11px;color:var(--text2)">Gesamtkosten (brutto)</div>
+          <div class="range-total-cost">${fmt.money(r.total_cost.brutto)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2)">davon MwSt.</div>
+          <div class="mono" style="font-size:15px;color:var(--text)">${fmt.money(r.total_cost.tax)}</div>
+        </div>` : ''}
+      </div>
+    </div>
   `;
 }
 

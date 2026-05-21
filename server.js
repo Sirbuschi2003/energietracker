@@ -241,6 +241,86 @@ app.get('/api/consumption', (req, res) => {
   res.json({ consumption, days, meter, from: rFrom, to: rTo, tariff, cost: { netto, tax, brutto, taxRate: tariff.tax_rate, details } });
 });
 
+// ── Consumption Range ────────────────────────────────────────────────────────
+app.get('/api/consumption/range', (req, res) => {
+  const { property_id, type, from_date, to_date } = req.query;
+  if (!property_id || !type || !from_date || !to_date)
+    return res.status(400).json({ error: 'Parameter fehlen' });
+
+  const property = db.prepare('SELECT * FROM properties WHERE id=?').get(property_id);
+  if (!property) return res.status(404).json({ error: 'Objekt nicht gefunden' });
+
+  const meters = db.prepare('SELECT * FROM meters WHERE property_id=? AND type=? ORDER BY created_at').all(property_id, type);
+
+  const segments = [];
+  let totalConsumption = 0, totalNetto = 0, totalTax = 0, totalBrutto = 0;
+
+  for (const meter of meters) {
+    const baseReading = db.prepare(
+      'SELECT * FROM readings WHERE meter_id=? AND date<=? ORDER BY date DESC LIMIT 1'
+    ).get(meter.id, from_date);
+    const periodReadings = db.prepare(
+      'SELECT * FROM readings WHERE meter_id=? AND date>? AND date<=? ORDER BY date ASC'
+    ).all(meter.id, from_date, to_date);
+
+    if (!baseReading && periodReadings.length < 2) continue;
+    const chain = baseReading ? [baseReading, ...periodReadings] : periodReadings;
+    if (chain.length < 2) continue;
+
+    for (let i = 0; i < chain.length - 1; i++) {
+      const rFrom = chain[i];
+      const rTo   = chain[i + 1];
+      const consumption = rTo.value - rFrom.value;
+      if (consumption < 0) continue;
+
+      const days = Math.max(1, Math.round((new Date(rTo.date) - new Date(rFrom.date)) / 86400000));
+
+      const tariff =
+        db.prepare(`SELECT * FROM tariffs WHERE meter_id=?
+                    AND (valid_from='' OR valid_from<=?) AND (valid_to='' OR valid_to>=?)
+                    ORDER BY valid_from DESC LIMIT 1`).get(meter.id, rTo.date, rFrom.date)
+        || db.prepare('SELECT * FROM tariffs WHERE meter_id=? ORDER BY created_at DESC LIMIT 1').get(meter.id);
+
+      let cost = null;
+      if (tariff) {
+        const details = {};
+        if (meter.type === 'wasser') {
+          details['Frischwasser']  = consumption * tariff.working_price;
+          details['Abwasser']      = consumption * tariff.sewage_price;
+          details['Grundgebühr']   = tariff.base_price * days / 30;
+          if (tariff.other_levies) details['Sonstiges'] = consumption * tariff.other_levies;
+        } else {
+          details['Arbeitspreis']         = consumption * tariff.working_price / 100;
+          details['Grundpreis']           = tariff.base_price * days / 30;
+          details['Netzentgelt Arbeit']   = consumption * tariff.grid_working_price / 100;
+          details['Netzentgelt Grund']    = tariff.grid_base_price * days / 30;
+          details['Messstellenentgelt']   = tariff.meter_fee * days / 30;
+          if (tariff.other_levies) details['Sonstige Umlagen'] = consumption * tariff.other_levies / 100;
+        }
+        const netto  = Object.values(details).reduce((s, v) => s + v, 0);
+        const tax    = netto * tariff.tax_rate / 100;
+        const brutto = netto + tax;
+        cost = { netto, tax, brutto, taxRate: tariff.tax_rate, details };
+        totalNetto  += netto;
+        totalTax    += tax;
+        totalBrutto += brutto;
+      }
+
+      totalConsumption += consumption;
+      segments.push({ meter, from: rFrom, to: rTo, consumption, days, tariff: tariff || null, cost });
+    }
+  }
+
+  const unit = meters[0]?.unit || (type === 'strom' ? 'kWh' : 'm³');
+  res.json({
+    from_date, to_date, type, property,
+    total_consumption: totalConsumption,
+    unit,
+    total_cost: totalBrutto > 0 ? { netto: totalNetto, tax: totalTax, brutto: totalBrutto } : null,
+    segments
+  });
+});
+
 // ── Dashboard ────────────────────────────────────────────────────────────────
 app.get('/api/dashboard', (req, res) => {
   const stats = {
