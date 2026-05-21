@@ -1,0 +1,16 @@
+services:
+  energietracker:
+    build: .
+    container_name: energietracker
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - energietracker_data:/data
+    environment:
+      - PORT=3000
+      - TZ=Europe/Berlin
+
+volumes:
+  energietracker_data:
+    driver: local

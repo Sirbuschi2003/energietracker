@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Energietracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #090d14;
+  --surface:   #0f1623;
+  --surface2:  #151e2e;
+  --surface3:  #1a2438;
+  --border:    #1e2d45;
+  --border2:   #253550;
+  --cyan:      #22d3ee;
+  --cyan-dim:  #164e63;
+  --amber:     #f59e0b;
+  --blue:      #60a5fa;
+  --green:     #34d399;
+  --red:       #f87171;
+  --text:      #e2e8f0;
+  --text2:     #94a3b8;
+  --text3:     #4b6280;
+  --strom:     #f59e0b;
+  --gas:       #60a5fa;
+  --wasser:    #22d3ee;
+  --r: 6px;
+  --r2: 10px;
+  --sidebar-w: 220px;
+}
+
+html, body { height: 100%; overflow: hidden; }
+body { font-family: 'Outfit', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+#app { display: flex; height: 100vh; }
+
+#sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-logo {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-logo .logo-icon {
+  font-size: 22px;
+  display: block;
+  margin-bottom: 6px;
+}
+.sidebar-logo .logo-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cyan);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sidebar-logo .logo-sub {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 2px;
+}
+
+.sidebar-nav {
+  padding: 12px 10px;
+  flex: 1;
+  overflow-y: auto;
+}
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 12px 10px 6px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--r);
+  cursor: pointer;
+  color: var(--text2);
+  font-size: 13.5px;
+  font-weight: 400;
+  transition: all 0.15s;
+  user-select: none;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: var(--cyan-dim); color: var(--cyan); font-weight: 500; }
+.nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto;
+  background: var(--surface3);
+  color: var(--text3);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.sidebar-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text3);
+}
+
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#topbar {
+  padding: 0 28px;
+  height: 56px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  background: var(--surface);
+}
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text2);
+}
+.breadcrumb .bc-sep { color: var(--text3); }
+.breadcrumb .bc-current { color: var(--text); font-weight: 500; }
+.breadcrumb .bc-link { cursor: pointer; color: var(--cyan); }
+.breadcrumb .bc-link:hover { text-decoration: underline; }
+
+#topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+
+#content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--r);
+  border: none;
+  cursor: pointer;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--cyan); color: #000; }
+.btn-primary:hover { background: #67e8f9; }
+.btn-secondary { background: var(--surface3); color: var(--text); border: 1px solid var(--border2); }
+.btn-secondary:hover { background: var(--border2); }
+.btn-danger { background: transparent; color: var(--red); border: 1px solid #7f1d1d; }
+.btn-danger:hover { background: #7f1d1d33; }
+.btn-ghost { background: transparent; color: var(--text2); padding: 6px 10px; }
+.btn-ghost:hover { background: var(--surface2); color: var(--text); }
+.btn-sm { padding: 5px 11px; font-size: 12.5px; }
+.btn-icon { padding: 6px 8px; }
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 20px;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.card-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+/* ── Stats Grid ───────────────────────────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 18px 20px;
+}
+.stat-label { font-size: 11.5px; color: var(--text2); font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.stat-value { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--text); line-height: 1; }
+.stat-value.cyan { color: var(--cyan); }
+.stat-value.amber { color: var(--amber); }
+.stat-value.green { color: var(--green); }
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; border-radius: var(--r2); border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; }
+thead tr { background: var(--surface2); }
+th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 11px 14px;
+  font-size: 13.5px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--surface2); }
+.mono { font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.td-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* ── Type Badges ──────────────────────────────────────────────────────────── */
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.badge-strom  { background: #451a03; color: var(--amber); }
+.badge-gas    { background: #1e3a5f; color: var(--blue); }
+.badge-wasser { background: #083344; color: var(--cyan); }
+
+/* ── Forms ────────────────────────────────────────────────────────────────── */
+.form-grid { display: grid; gap: 14px; }
+.form-grid-2 { grid-template-columns: 1fr 1fr; }
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-group.span-2 { grid-column: span 2; }
+label { font-size: 12px; font-weight: 500; color: var(--text2); }
+input, select, textarea {
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13.5px;
+  padding: 9px 12px;
+  width: 100%;
+  transition: border-color 0.15s;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--cyan); }
+input[type="number"] { font-family: 'JetBrains Mono', monospace; }
+select option { background: var(--surface3); }
+textarea { resize: vertical; min-height: 64px; }
+.input-unit {
+  display: flex;
+  align-items: center;
+}
+.input-unit input { border-radius: var(--r) 0 0 var(--r); }
+.unit-label {
+  background: var(--border);
+  border: 1px solid var(--border2);
+  border-left: none;
+  border-radius: 0 var(--r) var(--r) 0;
+  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.form-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  grid-column: 1 / -1;
+}
+
+/* ── Modal ────────────────────────────────────────────────────────────────── */
+#modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(3px);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+#modal-overlay.open { display: flex; }
+#modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  width: 90%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 60px rgba(0,0,0,0.6);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.modal-title { font-size: 16px; font-weight: 600; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text2);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px 24px; }
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: var(--surface);
+  position: sticky;
+  bottom: 0;
+}
+
+/* ── Meter Cards ──────────────────────────────────────────────────────────── */
+.meter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.meter-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 18px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+.meter-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.meter-card.strom::before { background: var(--amber); }
+.meter-card.gas::before   { background: var(--blue); }
+.meter-card.wasser::before { background: var(--cyan); }
+.meter-card:hover { border-color: var(--border2); transform: translateY(-1px); }
+.meter-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+.meter-card-name { font-size: 15px; font-weight: 600; }
+.meter-card-number { font-size: 11px; color: var(--text2); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+.meter-card-value { margin-top: 8px; }
+.meter-card-reading { font-size: 24px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--text); }
+.meter-card-reading.strom { color: var(--amber); }
+.meter-card-reading.gas   { color: var(--blue); }
+.meter-card-reading.wasser { color: var(--cyan); }
+.meter-card-unit { font-size: 13px; color: var(--text2); margin-left: 4px; }
+.meter-card-date { font-size: 11px; color: var(--text3); margin-top: 4px; }
+.meter-card-actions { display: flex; gap: 6px; }
+
+/* ── Empty State ──────────────────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text2);
+}
+.empty-icon { font-size: 40px; margin-bottom: 12px; }
+.empty-title { font-size: 16px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+.empty-sub { font-size: 13px; color: var(--text2); }
+
+/* ── Billing ──────────────────────────────────────────────────────────────── */
+.billing-result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  overflow: hidden;
+  margin-top: 20px;
+}
+.billing-header {
+  background: var(--surface2);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.billing-header .bh-item { font-size: 13px; color: var(--text2); }
+.billing-header .bh-item strong { color: var(--text); }
+.billing-lines { padding: 4px 0; }
+.billing-line {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+}
+.billing-line:last-child { border-bottom: none; }
+.billing-line .bl-name { flex: 1; color: var(--text); }
+.billing-line .bl-calc { flex: 2; color: var(--text3); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+.billing-line .bl-amount { font-family: 'JetBrains Mono', monospace; font-size: 13.5px; color: var(--text); text-align: right; min-width: 90px; }
+.billing-tax { background: var(--surface2); padding: 10px 20px; display: flex; justify-content: space-between; font-size: 13px; color: var(--text2); }
+.billing-total {
+  background: var(--cyan-dim);
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--cyan);
+}
+.billing-total .bt-label { font-size: 15px; font-weight: 600; color: var(--cyan); }
+.billing-total .bt-amount { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; color: var(--cyan); }
+
+/* ── Consumption Bar ──────────────────────────────────────────────────────── */
+.consumption-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 16px 20px;
+  margin-bottom: 10px;
+}
+.cons-amount { font-size: 26px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.cons-amount.strom { color: var(--amber); }
+.cons-amount.gas   { color: var(--blue); }
+.cons-amount.wasser { color: var(--cyan); }
+.cons-meta { font-size: 12px; color: var(--text2); }
+
+/* ── Misc ─────────────────────────────────────────────────────────────────── */
+.page-header { margin-bottom: 22px; }
+.page-title { font-size: 20px; font-weight: 700; }
+.page-desc { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.actions-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+.text-right { text-align: right; }
+.color-strom { color: var(--amber); }
+.color-gas   { color: var(--blue); }
+.color-wasser { color: var(--cyan); }
+.color-green { color: var(--green); }
+.color-red   { color: var(--red); }
+.color-muted { color: var(--text2); }
+.select-property-hint {
+  text-align: center;
+  padding: 40px;
+  color: var(--text2);
+  font-size: 14px;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+.toast {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  background: var(--surface3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 10px 16px;
+  font-size: 13px;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  transition: opacity 0.3s;
+  color: var(--text);
+}
+.toast.toast-ok { border-color: var(--green); color: var(--green); }
+.toast.toast-err { border-color: var(--red); color: var(--red); }
+.tariff-unit-hint { font-size: 11px; color: var(--text3); margin-top: 3px; }
+.divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-icon">⚡</span>
+      <div class="logo-title">Energietracker</div>
+      <div class="logo-sub">Zählerstandsverwaltung</div>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-group-label">Übersicht</div>
+      <div class="nav-item active" onclick="navigate('dashboard')" id="nav-dashboard">
+        <span class="nav-icon">◉</span> Dashboard
+      </div>
+      <div class="nav-group-label">Verwaltung</div>
+      <div class="nav-item" onclick="navigate('properties')" id="nav-properties">
+        <span class="nav-icon">🏢</span> Objekte
+        <span class="nav-badge" id="badge-properties">0</span>
+      </div>
+      <div class="nav-item" onclick="navigate('meters')" id="nav-meters">
+        <span class="nav-icon">📟</span> Zähler
+        <span class="nav-badge" id="badge-meters">0</span>
+      </div>
+      <div class="nav-item" onclick="navigate('readings')" id="nav-readings">
+        <span class="nav-icon">📋</span> Ablesungen
+      </div>
+      <div class="nav-item" onclick="navigate('tariffs')" id="nav-tariffs">
+        <span class="nav-icon">💶</span> Tarife
+      </div>
+      <div class="nav-group-label">Auswertung</div>
+      <div class="nav-item" onclick="navigate('billing')" id="nav-billing">
+        <span class="nav-icon">📊</span> Abrechnung
+      </div>
+    </div>
+    <div class="sidebar-footer">v1.0 · SQLite Backend</div>
+  </nav>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="topbar">
+      <div class="breadcrumb" id="breadcrumb">Dashboard</div>
+      <div id="topbar-actions"></div>
+    </div>
+    <div id="content">
+      <div class="empty-state"><div class="empty-icon">⚡</div><div class="empty-title">Wird geladen…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Titel</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+      <button class="btn btn-primary" id="modal-save" onclick="doModalSave()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── State ────────────────────────────────────────────────────────────────────
+const S = {
+  view: 'dashboard',
+  properties: [],
+  selectedPropertyId: null,
+  selectedMeterId: null,
+  meters: [],
+  allMeters: [],
+  readings: [],
+  tariffs: [],
+  dashboardData: null,
+  counts: { properties: 0, meters: 0 }
+};
+
+let modalSaveCallback = null;
+
+// ── API ──────────────────────────────────────────────────────────────────────
+async function api(method, path, data) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (data) opts.body = JSON.stringify(data);
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+const GET    = path => api('GET', path);
+const POST   = (path, d) => api('POST', path, d);
+const PUT    = (path, d) => api('PUT', path, d);
+const DELETE = path => api('DELETE', path);
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function toast(msg, type = 'ok') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const fmt = {
+  money: v => (typeof v === 'number' ? v.toFixed(2) : '–') + ' €',
+  num:   v => typeof v === 'number' ? v.toLocaleString('de-DE', { maximumFractionDigits: 3 }) : '–',
+  date:  v => v ? new Date(v).toLocaleDateString('de-DE') : '–',
+  ct:    v => typeof v === 'number' ? v.toFixed(4) + ' ct' : '–',
+};
+
+function typeLabel(t)  { return { strom: '⚡ Strom', gas: '🔥 Gas', wasser: '💧 Wasser' }[t] || t; }
+function typeBadge(t)  { return `<span class="type-badge badge-${t}">${typeLabel(t)}</span>`; }
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function setActive(view) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('nav-' + view);
+  if (el) el.classList.add('active');
+}
+
+function setBreadcrumb(html) { document.getElementById('breadcrumb').innerHTML = html; }
+function setTopActions(html) { document.getElementById('topbar-actions').innerHTML = html; }
+function setContent(html)    { document.getElementById('content').innerHTML = html; }
+
+async function updateBadges() {
+  try {
+    const d = await GET('/api/dashboard');
+    document.getElementById('badge-properties').textContent = d.stats.properties;
+    document.getElementById('badge-meters').textContent = d.stats.meters;
+    S.counts = d.stats;
+  } catch(e) {}
+}
+
+// ── Modal ────────────────────────────────────────────────────────────────────
+function openModal(title, bodyHtml, onSave, saveLabel = 'Speichern') {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHtml;
+  document.getElementById('modal-save').textContent = saveLabel;
+  document.getElementById('modal-overlay').classList.add('open');
+  modalSaveCallback = onSave;
+  const first = document.querySelector('#modal-body input, #modal-body select');
+  if (first) setTimeout(() => first.focus(), 50);
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  modalSaveCallback = null;
+}
+function doModalSave() {
+  if (modalSaveCallback) modalSaveCallback();
+}
+
+function gv(id) {
+  const el = document.getElementById(id);
+  if (!el) return '';
+  return el.type === 'checkbox' ? el.checked : el.value;
+}
+
+// ── Navigate ─────────────────────────────────────────────────────────────────
+async function navigate(view, propId, meterId) {
+  S.view = view;
+  if (propId !== undefined) S.selectedPropertyId = propId;
+  if (meterId !== undefined) S.selectedMeterId = meterId;
+  setActive(view);
+  await renderView();
+  await updateBadges();
+}
+
+async function renderView() {
+  const v = S.view;
+  if (v === 'dashboard')   return renderDashboard();
+  if (v === 'properties')  return renderProperties();
+  if (v === 'meters')      return renderMeters();
+  if (v === 'readings')    return renderReadings();
+  if (v === 'tariffs')     return renderTariffs();
+  if (v === 'billing')     return renderBilling();
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+async function renderDashboard() {
+  setBreadcrumb('Dashboard');
+  setTopActions('');
+  setContent('<div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Lade…</div></div>');
+  const d = await GET('/api/dashboard');
+  S.dashboardData = d;
+
+  const latestRows = d.latest.length
+    ? d.latest.map(r => `
+      <tr>
+        <td>${r.property_name}</td>
+        <td>${typeBadge(r.type)}</td>
+        <td>${r.meter_name}</td>
+        <td class="mono">${fmt.num(r.value)} <span class="color-muted">${r.unit}</span></td>
+        <td>${fmt.date(r.date)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:30px">
+        Noch keine Ablesungen vorhanden
+       </td></tr>`;
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">Dashboard</div>
+      <div class="page-desc">Übersicht aller Objekte und aktueller Zählerstände</div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Objekte</div>
+        <div class="stat-value cyan">${d.stats.properties}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Zähler</div>
+        <div class="stat-value amber">${d.stats.meters}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Ablesungen</div>
+        <div class="stat-value green">${d.stats.readings}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Aktuelle Zählerstände</div>
+          <div class="card-sub">Jeweils letzte Ablesung pro Zähler</div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="navigate('readings')">+ Ablesung</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Objekt</th><th>Typ</th><th>Zähler</th><th>Stand</th><th>Datum</th>
+          </tr></thead>
+          <tbody>${latestRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `);
+}
+
+// ── Properties ───────────────────────────────────────────────────────────────
+async function renderProperties() {
+  setBreadcrumb('Objekte');
+  setTopActions('<button class="btn btn-primary btn-sm" onclick="showAddProperty()">+ Objekt</button>');
+  setContent('<div class="empty-state"><div class="empty-icon">⏳</div></div>');
+  S.properties = await GET('/api/properties');
+
+  const rows = S.properties.length
+    ? S.properties.map(p => `
+      <tr>
+        <td><strong>${p.name}</strong></td>
+        <td>${p.address || '<span class="color-muted">–</span>'}</td>
+        <td>${p.notes || '<span class="color-muted">–</span>'}</td>
+        <td class="td-actions">
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="navigate('meters',${p.id})" title="Zähler anzeigen">📟</button>
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="showEditProperty(${p.id})" title="Bearbeiten">✏️</button>
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="deleteProperty(${p.id})" title="Löschen">🗑</button>
+        </td>
+      </tr>`).join('')
+    : `<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">🏢</div><div class="empty-title">Noch keine Objekte</div><div class="empty-sub">Füge dein erstes Mietobjekt hinzu</div></div></td></tr>`;
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">Objekte</div>
+      <div class="page-desc">Verwalte deine Mietobjekte und Liegenschaften</div>
+    </div>
+    <div class="actions-row">
+      <span class="color-muted">${S.properties.length} Objekt(e)</span>
+      <button class="btn btn-primary btn-sm" onclick="showAddProperty()">+ Objekt hinzufügen</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Adresse</th><th>Notizen</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function propertyForm(p = {}) {
+  return `<div class="form-grid">
+    <div class="form-group">
+      <label>Bezeichnung *</label>
+      <input id="f-name" value="${p.name || ''}" placeholder="z.B. Musterstraße 12 EG">
+    </div>
+    <div class="form-group">
+      <label>Adresse</label>
+      <input id="f-address" value="${p.address || ''}" placeholder="Straße, PLZ Ort">
+    </div>
+    <div class="form-group">
+      <label>Notizen</label>
+      <textarea id="f-notes">${p.notes || ''}</textarea>
+    </div>
+  </div>`;
+}
+
+function showAddProperty() {
+  openModal('Objekt hinzufügen', propertyForm(), async () => {
+    const name = gv('f-name');
+    if (!name) { toast('Bezeichnung erforderlich', 'err'); return; }
+    await POST('/api/properties', { name, address: gv('f-address'), notes: gv('f-notes') });
+    toast('Objekt gespeichert ✓');
+    closeModal(); renderProperties();
+  });
+}
+
+function showEditProperty(id) {
+  const p = S.properties.find(x => x.id === id);
+  openModal('Objekt bearbeiten', propertyForm(p), async () => {
+    await PUT(`/api/properties/${id}`, { name: gv('f-name'), address: gv('f-address'), notes: gv('f-notes') });
+    toast('Gespeichert ✓');
+    closeModal(); renderProperties();
+  });
+}
+
+async function deleteProperty(id) {
+  const p = S.properties.find(x => x.id === id);
+  if (!confirm(`Objekt "${p?.name}" und alle zugehörigen Zähler/Ablesungen unwiderruflich löschen?`)) return;
+  await DELETE(`/api/properties/${id}`);
+  toast('Gelöscht');
+  renderProperties();
+}
+
+// ── Meters ───────────────────────────────────────────────────────────────────
+async function renderMeters() {
+  S.properties = await GET('/api/properties');
+  S.allMeters  = await GET('/api/meters');
+
+  if (S.selectedPropertyId) {
+    const prop = S.properties.find(p => p.id === S.selectedPropertyId);
+    setBreadcrumb(`<span class="bc-link" onclick="navigate('properties')">Objekte</span>
+      <span class="bc-sep">›</span>
+      <span class="bc-current">${prop?.name || 'Zähler'}</span>`);
+    setTopActions(`<button class="btn btn-primary btn-sm" onclick="showAddMeter()">+ Zähler</button>`);
+    S.meters = S.allMeters.filter(m => m.property_id === S.selectedPropertyId);
+    renderMetersForProperty(prop, S.meters);
+  } else {
+    setBreadcrumb('Zähler');
+    setTopActions('');
+    renderAllMeters();
+  }
+}
+
+async function renderMetersForProperty(prop, meters) {
+  // Get latest reading per meter
+  const latestMap = {};
+  for (const m of meters) {
+    const r = await GET(`/api/readings?meter_id=${m.id}&limit=1`);
+    if (r.length) latestMap[m.id] = r[0];
+  }
+
+  const cards = meters.length ? meters.map(m => {
+    const lr = latestMap[m.id];
+    return `<div class="meter-card ${m.type}">
+      <div class="meter-card-header">
+        <div>
+          ${typeBadge(m.type)}
+          <div class="meter-card-name" style="margin-top:8px">${m.name}</div>
+          <div class="meter-card-number">${m.meter_number ? 'Nr. ' + m.meter_number : '&nbsp;'}</div>
+        </div>
+        <div class="meter-card-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="showEditMeter(${m.id})" title="Bearbeiten">✏️</button>
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="deleteMeter(${m.id})" title="Löschen">🗑</button>
+        </div>
+      </div>
+      ${lr ? `<div class="meter-card-value">
+        <span class="meter-card-reading ${m.type}">${fmt.num(lr.value)}</span>
+        <span class="meter-card-unit">${m.unit}</span>
+        <div class="meter-card-date">Stand vom ${fmt.date(lr.date)}</div>
+      </div>` : `<div class="meter-card-date color-muted">Noch keine Ablesung</div>`}
+      <div style="margin-top:12px; display:flex; gap:6px;">
+        <button class="btn btn-secondary btn-sm" onclick="navigate('readings',${S.selectedPropertyId},${m.id})">Ablesungen</button>
+        <button class="btn btn-secondary btn-sm" onclick="navigate('tariffs',${S.selectedPropertyId},${m.id})">Tarife</button>
+      </div>
+    </div>`;
+  }).join('') : `<div class="empty-state"><div class="empty-icon">📟</div><div class="empty-title">Keine Zähler vorhanden</div><div class="empty-sub">Füge einen Strom-, Gas- oder Wasserzähler hinzu</div></div>`;
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">${prop?.name || 'Zähler'}</div>
+      <div class="page-desc">${prop?.address || ''}</div>
+    </div>
+    <div class="actions-row">
+      <span class="color-muted">${meters.length} Zähler</span>
+      <button class="btn btn-primary btn-sm" onclick="showAddMeter()">+ Zähler hinzufügen</button>
+    </div>
+    <div class="meter-grid">${cards}</div>
+  `);
+}
+
+function renderAllMeters() {
+  const rows = S.allMeters.length ? S.allMeters.map(m => `
+    <tr>
+      <td>${m.property_name || '–'}</td>
+      <td>${typeBadge(m.type)}</td>
+      <td><strong>${m.name}</strong></td>
+      <td class="mono">${m.meter_number || '–'}</td>
+      <td>${m.unit}</td>
+      <td class="td-actions">
+        <button class="btn btn-ghost btn-sm" onclick="navigate('readings',${m.property_id},${m.id})">Ablesungen</button>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('tariffs',${m.property_id},${m.id})">Tarife</button>
+      </td>
+    </tr>`).join('')
+    : `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📟</div><div class="empty-title">Keine Zähler</div></div></td></tr>`;
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">Alle Zähler</div>
+    </div>
+    <div class="actions-row">
+      <span class="color-muted">${S.allMeters.length} Zähler</span>
+      <button class="btn btn-primary btn-sm" onclick="showAddMeter()">+ Zähler hinzufügen</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Objekt</th><th>Typ</th><th>Name</th><th>Zählernummer</th><th>Einheit</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function meterForm(m = {}) {
+  const propOpts = S.properties.map(p =>
+    `<option value="${p.id}" ${(m.property_id || S.selectedPropertyId) == p.id ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+  return `<div class="form-grid form-grid-2">
+    <div class="form-group">
+      <label>Objekt *</label>
+      <select id="f-propid">${propOpts}</select>
+    </div>
+    <div class="form-group">
+      <label>Zählertyp *</label>
+      <select id="f-type">
+        <option value="strom" ${m.type==='strom'?'selected':''}>⚡ Strom</option>
+        <option value="gas"   ${m.type==='gas'  ?'selected':''}>🔥 Gas</option>
+        <option value="wasser"${m.type==='wasser'?'selected':''}>💧 Wasser</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Bezeichnung *</label>
+      <input id="f-name" value="${m.name || ''}" placeholder="z.B. Hauptzähler EG">
+    </div>
+    <div class="form-group">
+      <label>Zählernummer</label>
+      <input id="f-number" value="${m.meter_number || ''}" placeholder="z.B. DE00123456789">
+    </div>
+    <div class="form-group">
+      <label>Einheit</label>
+      <input id="f-unit" value="${m.unit || ''}" placeholder="kWh / m³">
+    </div>
+    <div class="form-group">
+      <label>Notizen</label>
+      <input id="f-notes" value="${m.notes || ''}">
+    </div>
+  </div>`;
+}
+
+function showAddMeter() {
+  openModal('Zähler hinzufügen', meterForm(), async () => {
+    const name = gv('f-name');
+    if (!name) { toast('Bezeichnung erforderlich', 'err'); return; }
+    await POST('/api/meters', {
+      property_id: +gv('f-propid'), type: gv('f-type'), name,
+      meter_number: gv('f-number'), unit: gv('f-unit'), notes: gv('f-notes')
+    });
+    toast('Zähler gespeichert ✓');
+    closeModal(); renderMeters();
+  });
+}
+
+function showEditMeter(id) {
+  const m = S.allMeters.find(x => x.id === id);
+  openModal('Zähler bearbeiten', meterForm(m), async () => {
+    await PUT(`/api/meters/${id}`, {
+      type: gv('f-type'), name: gv('f-name'),
+      meter_number: gv('f-number'), unit: gv('f-unit'), notes: gv('f-notes')
+    });
+    toast('Gespeichert ✓'); closeModal(); renderMeters();
+  });
+}
+
+async function deleteMeter(id) {
+  const m = S.allMeters.find(x => x.id === id);
+  if (!confirm(`Zähler "${m?.name}" und alle Ablesungen/Tarife löschen?`)) return;
+  await DELETE(`/api/meters/${id}`);
+  toast('Gelöscht'); renderMeters();
+}
+
+// ── Readings ─────────────────────────────────────────────────────────────────
+async function renderReadings() {
+  S.properties = await GET('/api/properties');
+  S.allMeters  = await GET('/api/meters');
+
+  const prop = S.properties.find(p => p.id === S.selectedPropertyId);
+  const meter = S.allMeters.find(m => m.id === S.selectedMeterId);
+
+  if (meter) {
+    setBreadcrumb(`
+      <span class="bc-link" onclick="navigate('properties')">Objekte</span>
+      <span class="bc-sep">›</span>
+      <span class="bc-link" onclick="navigate('meters',${prop?.id})">${prop?.name || '...'}</span>
+      <span class="bc-sep">›</span>
+      <span class="bc-current">${meter.name}</span>`);
+    setTopActions(`<button class="btn btn-primary btn-sm" onclick="showAddReading()">+ Ablesung</button>`);
+    S.readings = await GET(`/api/readings?meter_id=${meter.id}`);
+    renderReadingsTable(meter, S.readings);
+  } else {
+    setBreadcrumb('Ablesungen');
+    setTopActions(`<button class="btn btn-primary btn-sm" onclick="showAddReading()">+ Ablesung</button>`);
+    S.readings = await GET('/api/readings?limit=100');
+    renderAllReadings(S.readings);
+  }
+}
+
+function renderReadingsTable(meter, readings) {
+  const rows = readings.length ? readings.map((r, i) => {
+    const prev = readings[i + 1];
+    const diff = prev ? r.value - prev.value : null;
+    const days = prev ? Math.round((new Date(r.date) - new Date(prev.date)) / 86400000) : null;
+    return `<tr>
+      <td class="mono">${fmt.date(r.date)}</td>
+      <td class="mono ${meter.type === 'strom' ? 'color-strom' : meter.type === 'gas' ? 'color-gas' : 'color-wasser'}">
+        ${fmt.num(r.value)} <span class="color-muted" style="font-size:11px">${meter.unit}</span>
+      </td>
+      <td class="mono">${diff !== null ? `+${fmt.num(diff)} ${meter.unit}` : '<span class="color-muted">–</span>'}</td>
+      <td class="color-muted">${days !== null ? days + ' Tage' : '–'}</td>
+      <td>${r.notes || '<span class="color-muted">–</span>'}</td>
+      <td class="td-actions">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="showEditReading(${r.id})" title="Bearbeiten">✏️</button>
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="deleteReading(${r.id})" title="Löschen">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Keine Ablesungen</div></div></td></tr>`;
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">${meter.name}</div>
+      <div class="page-desc">${typeLabel(meter.type)} · ${meter.meter_number ? 'Nr. ' + meter.meter_number : 'Zählernummer nicht hinterlegt'}</div>
+    </div>
+    <div class="actions-row">
+      <span class="color-muted">${readings.length} Ablesung(en)</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="navigate('billing',${S.selectedPropertyId},${meter.id})">📊 Abrechnen</button>
+        <button class="btn btn-primary btn-sm" onclick="showAddReading()">+ Ablesung eintragen</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Datum</th><th>Zählerstand</th><th>Verbrauch</th><th>Zeitraum</th><th>Notiz</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function renderAllReadings(readings) {
+  // Show filter by meter
+  const meterOpts = S.allMeters.map(m =>
+    `<option value="${m.id}">${m.property_name} – ${m.name}</option>`
+  ).join('');
+
+  const rows = readings.length ? readings.map(r => `
+    <tr>
+      <td>${r.property_name || '–'}</td>
+      <td>${typeBadge(r.type)}</td>
+      <td>${r.meter_name}</td>
+      <td class="mono">${fmt.date(r.date)}</td>
+      <td class="mono">${fmt.num(r.value)} <span class="color-muted">${r.unit}</span></td>
+      <td>${r.notes || '<span class="color-muted">–</span>'}</td>
+      <td class="td-actions">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="deleteReading(${r.id})">🗑</button>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📋</div><div class="empty-title">Keine Ablesungen</div></div></td></tr>`;
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">Ablesungen</div>
+      <div class="page-desc">Wähle einen Zähler aus, um gezielt Ablesungen zu verwalten</div>
+    </div>
+    <div class="actions-row">
+      <span class="color-muted">Letzte 100 Ablesungen</span>
+      <button class="btn btn-primary btn-sm" onclick="showAddReading()">+ Ablesung eintragen</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Objekt</th><th>Typ</th><th>Zähler</th><th>Datum</th><th>Stand</th><th>Notiz</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function readingForm(r = {}) {
+  const meterOpts = S.allMeters.map(m =>
+    `<option value="${m.id}" ${(r.meter_id || S.selectedMeterId) == m.id ? 'selected' : ''}>${m.property_name ? m.property_name + ' – ' : ''}${m.name} (${m.unit})</option>`
+  ).join('');
+  return `<div class="form-grid">
+    <div class="form-group">
+      <label>Zähler *</label>
+      <select id="f-meterid">${meterOpts}</select>
+    </div>
+    <div class="form-grid form-grid-2" style="gap:14px">
+      <div class="form-group">
+        <label>Datum *</label>
+        <input type="date" id="f-date" value="${r.date || todayISO()}">
+      </div>
+      <div class="form-group">
+        <label>Zählerstand *</label>
+        <input type="number" id="f-value" value="${r.value ?? ''}" step="0.001" placeholder="z.B. 12345.678">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Notiz</label>
+      <input id="f-notes" value="${r.notes || ''}" placeholder="optional">
+    </div>
+  </div>`;
+}
+
+function showAddReading() {
+  openModal('Ablesung eintragen', readingForm(), async () => {
+    const val = gv('f-value');
+    if (!val) { toast('Zählerstand erforderlich', 'err'); return; }
+    await POST('/api/readings', {
+      meter_id: +gv('f-meterid'), date: gv('f-date'),
+      value: parseFloat(val), notes: gv('f-notes')
+    });
+    toast('Ablesung gespeichert ✓'); closeModal(); renderReadings();
+  });
+}
+
+function showEditReading(id) {
+  const r = S.readings.find(x => x.id === id);
+  openModal('Ablesung bearbeiten', readingForm(r), async () => {
+    await PUT(`/api/readings/${id}`, {
+      date: gv('f-date'), value: parseFloat(gv('f-value')), notes: gv('f-notes')
+    });
+    toast('Gespeichert ✓'); closeModal(); renderReadings();
+  });
+}
+
+async function deleteReading(id) {
+  if (!confirm('Ablesung löschen?')) return;
+  await DELETE(`/api/readings/${id}`);
+  toast('Gelöscht'); renderReadings();
+}
+
+// ── Tariffs ───────────────────────────────────────────────────────────────────
+async function renderTariffs() {
+  S.properties = await GET('/api/properties');
+  S.allMeters  = await GET('/api/meters');
+  const meter = S.allMeters.find(m => m.id === S.selectedMeterId);
+  const prop  = S.properties.find(p => p.id === S.selectedPropertyId);
+
+  if (meter) {
+    setBreadcrumb(`
+      <span class="bc-link" onclick="navigate('properties')">Objekte</span>
+      <span class="bc-sep">›</span>
+      <span class="bc-link" onclick="navigate('meters',${prop?.id})">${prop?.name || '...'}</span>
+      <span class="bc-sep">›</span>
+      <span class="bc-current">Tarife: ${meter.name}</span>`);
+    setTopActions(`<button class="btn btn-primary btn-sm" onclick="showAddTariff()">+ Tarif</button>`);
+    S.tariffs = await GET(`/api/tariffs?meter_id=${meter.id}`);
+    renderTariffsTable(meter, S.tariffs);
+  } else {
+    setBreadcrumb('Tarife');
+    setTopActions('');
+    setContent(`<div class="select-property-hint">
+      <div class="empty-icon">💶</div>
+      <p>Wähle einen Zähler aus, um Tarife zu verwalten.<br>
+      Gehe zu <strong>Objekte → Zähler → Tarife</strong>.</p>
+    </div>`);
+  }
+}
+
+function renderTariffsTable(meter, tariffs) {
+  const isWater = meter.type === 'wasser';
+  const rows = tariffs.length ? tariffs.map(t => `
+    <tr>
+      <td><strong>${t.provider || '–'}</strong><br><small class="color-muted">${t.tariff_name || '–'}</small></td>
+      <td class="mono">${isWater ? fmt.money(t.working_price) + '/m³' : fmt.ct(t.working_price) + '/kWh'}</td>
+      ${isWater ? `<td class="mono">${fmt.money(t.sewage_price)}/m³</td>` : `<td class="mono">${fmt.ct(t.grid_working_price)}</td>`}
+      <td class="mono">${fmt.money(t.base_price)}/Mon</td>
+      <td class="mono">${t.tax_rate} %</td>
+      <td>${t.valid_from || '–'} – ${t.valid_to || '–'}</td>
+      <td class="td-actions">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="showEditTariff(${t.id})">✏️</button>
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="deleteTariff(${t.id})">🗑</button>
+      </td>
+    </tr>`).join('')
+    : `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">💶</div><div class="empty-title">Kein Tarif hinterlegt</div><div class="empty-sub">Ohne Tarif ist keine Kostenberechnung möglich</div></div></td></tr>`;
+
+  const col3 = isWater ? 'Abwasser' : 'Netzentgelt Arbeit';
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">Tarife · ${meter.name}</div>
+      <div class="page-desc">${typeLabel(meter.type)} – Preise und Konditionen</div>
+    </div>
+    <div class="actions-row">
+      <span class="color-muted">${tariffs.length} Tarif(e)</span>
+      <button class="btn btn-primary btn-sm" onclick="showAddTariff()">+ Tarif hinzufügen</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Anbieter / Tarif</th>
+          <th>Arbeitspreis</th>
+          <th>${col3}</th>
+          <th>Grundpreis</th>
+          <th>MwSt.</th>
+          <th>Gültig</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function tariffForm(t = {}, meterType) {
+  const isWater = meterType === 'wasser';
+  const wp_hint = isWater ? '€/m³ · z.B. 1.95' : 'ct/kWh · z.B. 30.25';
+  const gw_hint = isWater ? '' : 'ct/kWh · z.B. 8.50';
+
+  return `<div class="form-grid form-grid-2">
+    <div class="form-group">
+      <label>Anbieter</label>
+      <input id="f-provider" value="${t.provider || ''}" placeholder="z.B. Stadtwerke Musterstadt">
+    </div>
+    <div class="form-group">
+      <label>Tarifname</label>
+      <input id="f-tname" value="${t.tariff_name || ''}" placeholder="z.B. Strom Flex 2024">
+    </div>
+
+    <div class="form-section-title">Preiskomponenten</div>
+
+    <div class="form-group">
+      <label>${isWater ? 'Frischwasserpreis' : 'Arbeitspreis'}</label>
+      <div class="input-unit">
+        <input type="number" id="f-wp" value="${t.working_price ?? ''}" step="0.0001" placeholder="0.00">
+        <span class="unit-label">${isWater ? '€/m³' : 'ct/kWh'}</span>
+      </div>
+      <div class="tariff-unit-hint">${wp_hint}</div>
+    </div>
+
+    <div class="form-group">
+      <label>Grundpreis (monatlich)</label>
+      <div class="input-unit">
+        <input type="number" id="f-bp" value="${t.base_price ?? ''}" step="0.01" placeholder="0.00">
+        <span class="unit-label">€/Mon</span>
+      </div>
+    </div>
+
+    ${isWater ? `
+    <div class="form-group">
+      <label>Abwasser / Entsorgung</label>
+      <div class="input-unit">
+        <input type="number" id="f-sewage" value="${t.sewage_price ?? ''}" step="0.0001" placeholder="0.00">
+        <span class="unit-label">€/m³</span>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Sonstige (€/m³)</label>
+      <div class="input-unit">
+        <input type="number" id="f-other" value="${t.other_levies ?? ''}" step="0.0001" placeholder="0.00">
+        <span class="unit-label">€/m³</span>
+      </div>
+    </div>` : `
+    <div class="form-group">
+      <label>Netzentgelt Arbeitspreis</label>
+      <div class="input-unit">
+        <input type="number" id="f-gwa" value="${t.grid_working_price ?? ''}" step="0.0001" placeholder="0.00">
+        <span class="unit-label">ct/kWh</span>
+      </div>
+      <div class="tariff-unit-hint">${gw_hint}</div>
+    </div>
+    <div class="form-group">
+      <label>Netzentgelt Grundpreis</label>
+      <div class="input-unit">
+        <input type="number" id="f-gwb" value="${t.grid_base_price ?? ''}" step="0.01" placeholder="0.00">
+        <span class="unit-label">€/Mon</span>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Messstellenentgelt</label>
+      <div class="input-unit">
+        <input type="number" id="f-mfe" value="${t.meter_fee ?? ''}" step="0.01" placeholder="0.00">
+        <span class="unit-label">€/Mon</span>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Sonstige Umlagen (KWK, §19 etc.)</label>
+      <div class="input-unit">
+        <input type="number" id="f-other" value="${t.other_levies ?? ''}" step="0.0001" placeholder="0.00">
+        <span class="unit-label">ct/kWh</span>
+      </div>
+    </div>`}
+
+    <div class="form-section-title">Steuer & Gültigkeit</div>
+
+    <div class="form-group">
+      <label>Mehrwertsteuer</label>
+      <div class="input-unit">
+        <input type="number" id="f-tax" value="${t.tax_rate ?? (isWater ? 7 : 19)}" step="0.1">
+        <span class="unit-label">%</span>
+      </div>
+    </div>
+    <div></div>
+    <div class="form-group">
+      <label>Gültig ab</label>
+      <input type="date" id="f-vf" value="${t.valid_from || ''}">
+    </div>
+    <div class="form-group">
+      <label>Gültig bis</label>
+      <input type="date" id="f-vt" value="${t.valid_to || ''}">
+    </div>
+    <div class="form-group span-2">
+      <label>Notizen</label>
+      <textarea id="f-notes">${t.notes || ''}</textarea>
+    </div>
+  </div>`;
+}
+
+function getTariffFormData(meterType) {
+  const isWater = meterType === 'wasser';
+  return {
+    provider: gv('f-provider'), tariff_name: gv('f-tname'),
+    working_price: +gv('f-wp') || 0,
+    base_price: +gv('f-bp') || 0,
+    grid_working_price: isWater ? 0 : (+gv('f-gwa') || 0),
+    grid_base_price: isWater ? 0 : (+gv('f-gwb') || 0),
+    meter_fee: isWater ? 0 : (+gv('f-mfe') || 0),
+    sewage_price: isWater ? (+gv('f-sewage') || 0) : 0,
+    other_levies: +gv('f-other') || 0,
+    tax_rate: +gv('f-tax') || 19,
+    valid_from: gv('f-vf'), valid_to: gv('f-vt'),
+    notes: gv('f-notes')
+  };
+}
+
+function showAddTariff() {
+  const meter = S.allMeters.find(m => m.id === S.selectedMeterId);
+  openModal('Tarif hinzufügen', tariffForm({}, meter?.type), async () => {
+    await POST('/api/tariffs', { meter_id: S.selectedMeterId, ...getTariffFormData(meter?.type) });
+    toast('Tarif gespeichert ✓'); closeModal(); renderTariffs();
+  });
+}
+
+function showEditTariff(id) {
+  const t = S.tariffs.find(x => x.id === id);
+  const meter = S.allMeters.find(m => m.id === S.selectedMeterId);
+  openModal('Tarif bearbeiten', tariffForm(t, meter?.type), async () => {
+    await PUT(`/api/tariffs/${id}`, getTariffFormData(meter?.type));
+    toast('Gespeichert ✓'); closeModal(); renderTariffs();
+  });
+}
+
+async function deleteTariff(id) {
+  if (!confirm('Tarif löschen?')) return;
+  await DELETE(`/api/tariffs/${id}`);
+  toast('Gelöscht'); renderTariffs();
+}
+
+// ── Billing ──────────────────────────────────────────────────────────────────
+async function renderBilling() {
+  S.properties = await GET('/api/properties');
+  S.allMeters  = await GET('/api/meters');
+
+  const meter = S.allMeters.find(m => m.id === S.selectedMeterId);
+  const prop  = S.properties.find(p => p.id === S.selectedPropertyId);
+
+  setBreadcrumb(meter
+    ? `<span class="bc-link" onclick="navigate('properties')">Objekte</span>
+       <span class="bc-sep">›</span>
+       <span class="bc-link" onclick="navigate('meters',${prop?.id})">${prop?.name}</span>
+       <span class="bc-sep">›</span>
+       <span class="bc-current">Abrechnung: ${meter.name}</span>`
+    : 'Abrechnung');
+  setTopActions('');
+
+  const meterOpts = S.allMeters.map(m =>
+    `<option value="${m.id}" ${(S.selectedMeterId) == m.id ? 'selected' : ''}>${m.property_name ? m.property_name + ' – ' : ''}${m.name}</option>`
+  ).join('');
+
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">Kostenabrechnung</div>
+      <div class="page-desc">Verbrauch und Kosten zwischen zwei Ablesungen berechnen</div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><div class="card-title">Zeitraum auswählen</div></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group span-2">
+          <label>Zähler</label>
+          <select id="b-meter" onchange="loadBillingReadings()">${meterOpts}</select>
+        </div>
+        <div class="form-group">
+          <label>Von (Ablesung)</label>
+          <select id="b-from"></select>
+        </div>
+        <div class="form-group">
+          <label>Bis (Ablesung)</label>
+          <select id="b-to"></select>
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-primary" onclick="calcBilling()">📊 Kosten berechnen</button>
+      </div>
+    </div>
+    <div id="billing-result"></div>
+  `);
+
+  if (S.selectedMeterId) await loadBillingReadings();
+}
+
+async function loadBillingReadings() {
+  const mid = +gv('b-meter');
+  if (!mid) return;
+  const readings = await GET(`/api/readings?meter_id=${mid}&limit=50`);
+  const opts = readings.map(r =>
+    `<option value="${r.id}">${fmt.date(r.date)} – ${fmt.num(r.value)}</option>`
+  ).join('');
+  document.getElementById('b-from').innerHTML = opts;
+  document.getElementById('b-to').innerHTML = opts;
+  // default: from = second latest, to = latest
+  const selFrom = document.getElementById('b-from');
+  const selTo   = document.getElementById('b-to');
+  if (selFrom.options.length > 1) selFrom.selectedIndex = 1;
+  if (selTo.options.length > 0)   selTo.selectedIndex = 0;
+}
+
+async function calcBilling() {
+  const mid  = gv('b-meter');
+  const fid  = gv('b-from');
+  const tid  = gv('b-to');
+  if (!mid || !fid || !tid || fid === tid) {
+    toast('Bitte zwei verschiedene Ablesungen wählen', 'err'); return;
+  }
+  const result = await GET(`/api/consumption?meter_id=${mid}&from_id=${fid}&to_id=${tid}`);
+  renderBillingResult(result);
+}
+
+function renderBillingResult(r) {
+  const el = document.getElementById('billing-result');
+  if (!r) { el.innerHTML = ''; return; }
+
+  if (r.consumption < 0) {
+    el.innerHTML = `<div style="color:var(--red);padding:16px">⚠️ Ältere Ablesung als Startpunkt wählen (negativer Verbrauch)</div>`;
+    return;
+  }
+
+  const typeClass = r.meter.type;
+
+  let detailRows = '';
+  if (r.cost) {
+    for (const [name, d] of Object.entries(r.cost.details)) {
+      if (!d.value && d.value !== 0) continue;
+      detailRows += `<div class="billing-line">
+        <div class="bl-name">${name}</div>
+        <div class="bl-calc">${d.unit || ''}</div>
+        <div class="bl-amount">${fmt.money(d.value)}</div>
+      </div>`;
+    }
+  }
+
+  el.innerHTML = `
+    <div class="consumption-bar">
+      <div>
+        <div class="cons-amount ${typeClass}">${fmt.num(r.consumption)} <span style="font-size:16px;color:var(--text2)">${r.meter.unit}</span></div>
+        <div class="cons-meta">Verbrauch in ${r.days} Tagen (${fmt.date(r.from.date)} – ${fmt.date(r.to.date)})</div>
+      </div>
+      <div style="margin-left:auto;text-align:right">
+        <div style="font-size:12px;color:var(--text2)">Von</div>
+        <div class="mono" style="font-size:15px">${fmt.num(r.from.value)} ${r.meter.unit}</div>
+        <div style="font-size:11px;color:var(--text3)">${fmt.date(r.from.date)}</div>
+      </div>
+      <div style="color:var(--text3)">→</div>
+      <div style="text-align:right">
+        <div style="font-size:12px;color:var(--text2)">Bis</div>
+        <div class="mono" style="font-size:15px">${fmt.num(r.to.value)} ${r.meter.unit}</div>
+        <div style="font-size:11px;color:var(--text3)">${fmt.date(r.to.date)}</div>
+      </div>
+    </div>
+
+    ${r.cost ? `
+    <div class="billing-result">
+      <div class="billing-header">
+        <div class="bh-item">Anbieter: <strong>${r.tariff.provider || '–'}</strong></div>
+        <div class="bh-item">Tarif: <strong>${r.tariff.tariff_name || '–'}</strong></div>
+        <div class="bh-item">Zeitraum: <strong>${r.days} Tage</strong></div>
+      </div>
+      <div class="billing-lines">${detailRows}</div>
+      <div class="billing-tax">
+        <span>Nettobetrag</span>
+        <span class="mono">${fmt.money(r.cost.netto)}</span>
+      </div>
+      <div class="billing-tax">
+        <span>Umsatzsteuer ${r.cost.taxRate} %</span>
+        <span class="mono">${fmt.money(r.cost.tax)}</span>
+      </div>
+      <div class="billing-total">
+        <div class="bt-label">Gesamtbetrag (brutto)</div>
+        <div class="bt-amount">${fmt.money(r.cost.brutto)}</div>
+      </div>
+    </div>` : `
+    <div class="card" style="text-align:center;color:var(--text2);padding:30px">
+      Kein Tarif für diesen Zähler hinterlegt.<br>
+      <button class="btn btn-secondary btn-sm" style="margin-top:12px"
+        onclick="navigate('tariffs',${S.selectedPropertyId},${r.meter.id})">Tarif hinzufügen</button>
+    </div>`}
+  `;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    await navigate('dashboard');
+  } catch(e) {
+    setContent(`<div class="empty-state">
+      <div class="empty-icon">⚠️</div>
+      <div class="empty-title">Verbindungsfehler</div>
+      <div class="empty-sub">${e.message}</div>
+    </div>`);
+  }
+}
+
+// Close modal on overlay click
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+// Enter key in modal
+document.getElementById('modal-box').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') doModalSave();
+});
+
+init();
+</script>
+</body>
+</html>
