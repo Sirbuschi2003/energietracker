@@ -1,6 +1,6 @@
 services:
   energietracker:
-    build: .
+    image: ghcr.io/sirbuschi2003/energietracker:latest
     container_name: energietracker
     restart: unless-stopped
     ports:
