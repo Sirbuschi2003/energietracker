@@ -2,12 +2,11 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
 const multer = require('multer');
-const Anthropic = require('@anthropic-ai/sdk');
+const pdfParse = require('pdf-parse');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -203,53 +202,135 @@ app.delete('/api/tariffs/:id', (req, res) => {
 });
 
 // ── Tariff Extraction from Document ─────────────────────────────────────────
-app.post('/api/tariffs/extract', upload.single('document'), async (req, res) => {
-  if (!anthropic) return res.status(503).json({ error: 'ANTHROPIC_API_KEY nicht konfiguriert' });
-  if (!req.file)  return res.status(400).json({ error: 'Keine Datei hochgeladen' });
-
-  const mime = req.file.mimetype;
-  const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-  if (!allowed.includes(mime)) return res.status(400).json({ error: 'Nur PDF, JPG, PNG oder WEBP erlaubt' });
-
-  const contentBlock = mime === 'application/pdf'
-    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: req.file.buffer.toString('base64') } }
-    : { type: 'image',    source: { type: 'base64', media_type: mime,               data: req.file.buffer.toString('base64') } };
-
-  const prompt = `Analysiere dieses Energievertrags-Dokument und extrahiere die Tarif-Daten.
-Gib NUR ein JSON-Objekt zurück, kein Text davor oder danach:
-{
-  "type": "strom" oder "gas" oder "wasser",
-  "provider": "Anbietername",
-  "tariff_name": "Tarifname",
-  "working_price": Arbeitspreis in ct/kWh (Strom/Gas) oder €/m³ (Wasser) als Zahl,
-  "base_price": Grundpreis pro Monat in € als Zahl,
-  "grid_working_price": Netzentgelt Arbeitspreis ct/kWh als Zahl (0 wenn nicht vorhanden),
-  "grid_base_price": Netzentgelt Grundpreis €/Monat als Zahl (0 wenn nicht vorhanden),
-  "meter_fee": Messstellenentgelt €/Monat als Zahl (0 wenn nicht vorhanden),
-  "sewage_price": Abwasserpreis €/m³ als Zahl (nur für Wasser, sonst 0),
-  "other_levies": Sonstige Umlagen ct/kWh als Zahl (0 wenn nicht vorhanden),
-  "tax_rate": Mehrwertsteuersatz als Zahl (19 für Strom/Gas, 7 für Wasser),
-  "prices_gross": true wenn Preise bereits inkl. MwSt., sonst false,
-  "valid_from": "YYYY-MM-DD" oder "",
-  "valid_to": "YYYY-MM-DD" oder ""
+function deNum(s) {
+  // Convert German number format (1.234,56 or 1234,56 or 1234.56) to float
+  if (!s) return 0;
+  s = s.trim();
+  // If has both . and , — German thousands separator: 1.234,56
+  if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else s = s.replace(',', '.');
+  return parseFloat(s) || 0;
 }
-Wenn ein Wert nicht gefunden wird, nutze 0 oder "".`;
+
+function findNum(text, patterns) {
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) return deNum(m[1]);
+  }
+  return 0;
+}
+
+function findDate(text, patterns) {
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) {
+      // Convert DD.MM.YYYY to YYYY-MM-DD
+      if (m[1] && m[1].includes('.')) {
+        const parts = m[1].split('.');
+        if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+      }
+      return m[1] || '';
+    }
+  }
+  return '';
+}
+
+function extractTariffFromText(text) {
+  const t = text.replace(/\s+/g, ' ');
+
+  // Detect type
+  let type = 'strom';
+  if (/\bgas\b|\berdgas\b|\bnatural.?gas\b/i.test(t)) type = 'gas';
+  else if (/\bwasser\b|\btrinkwasser\b|\bfrischwasser\b/i.test(t)) type = 'wasser';
+
+  // Provider: first non-empty line often contains it, or look for known patterns
+  const providerMatch = t.match(/(?:Anbieter|Lieferant|Versorger)[:\s]+([^\n,;]{3,40})/i)
+    || t.match(/^([A-ZÄÖÜ][a-zA-ZÄÖÜäöüß\s&.\-]{2,35}(?:GmbH|AG|KG|Werke|Energie|Strom|Gas|Power))/m);
+  const provider = providerMatch ? providerMatch[1].trim() : '';
+
+  // Tariff name
+  const tariffMatch = t.match(/(?:Tarif(?:name)?|Produkt(?:name)?|Bezeichnung)[:\s]+([^\n,;]{3,50})/i);
+  const tariff_name = tariffMatch ? tariffMatch[1].trim() : '';
+
+  // Working price (ct/kWh for Strom/Gas, €/m³ for Wasser)
+  let working_price = 0;
+  if (type === 'wasser') {
+    working_price = findNum(t, [
+      /(?:Frischwasser|Wasserpreis|Arbeitspreis)[^0-9]*?([\d.,]+)\s*€\s*\/\s*m[³3]/i,
+      /([\d.,]+)\s*€\s*\/\s*m[³3](?!\s*Abwasser)/i,
+    ]);
+  } else {
+    working_price = findNum(t, [
+      /Arbeitspreis[^0-9]*?([\d.,]+)\s*(?:ct|Cent|¢)\s*\/\s*kWh/i,
+      /([\d.,]+)\s*(?:ct|Cent)\s*\/\s*kWh/i,
+      /Arbeitspreis[^0-9]*?([\d.,]+)/i,
+    ]);
+  }
+
+  // Base price (€/Monat)
+  const base_price = findNum(t, [
+    /Grundpreis[^0-9]*?([\d.,]+)\s*€\s*\/\s*(?:Monat|Mon\.|mtl\.)/i,
+    /Grundgebühr[^0-9]*?([\d.,]+)\s*€\s*\/\s*(?:Monat|Mon\.|mtl\.)/i,
+    /Grundpreis[^0-9]*?([\d.,]+)/i,
+  ]);
+
+  // Grid fees (Netzentgelt)
+  const grid_working_price = findNum(t, [
+    /Netzentgelt[^\n]*?Arbeit[^0-9]*?([\d.,]+)\s*(?:ct|Cent)\s*\/\s*kWh/i,
+    /Netz(?:nutzungs)?entgelt[^0-9]*?([\d.,]+)\s*(?:ct|Cent)\s*\/\s*kWh/i,
+  ]);
+  const grid_base_price = findNum(t, [
+    /Netzentgelt[^\n]*?Grund[^0-9]*?([\d.,]+)\s*€\s*\/\s*(?:Monat|Mon\.)/i,
+    /Netzgrundpreis[^0-9]*?([\d.,]+)/i,
+  ]);
+
+  // Meter fee (Messstellenentgelt)
+  const meter_fee = findNum(t, [
+    /Messstellen(?:entgelt|betrieb)[^0-9]*?([\d.,]+)\s*€\s*\/\s*(?:Monat|Mon\.)/i,
+    /Messstellenentgelt[^0-9]*?([\d.,]+)/i,
+  ]);
+
+  // Sewage (Abwasser)
+  const sewage_price = type === 'wasser' ? findNum(t, [
+    /Abwasser[^0-9]*?([\d.,]+)\s*€\s*\/\s*m[³3]/i,
+    /Entsorgung[^0-9]*?([\d.,]+)\s*€\s*\/\s*m[³3]/i,
+  ]) : 0;
+
+  // Tax rate
+  const taxMatch = t.match(/(\d+(?:[.,]\d+)?)\s*%\s*(?:MwSt\.?|Mehrwertsteuer|USt\.?)/i);
+  const tax_rate = taxMatch ? deNum(taxMatch[1]) : (type === 'wasser' ? 7 : 19);
+
+  // Gross prices indicator
+  const prices_gross = /(?:inkl\.|inklusive|einschließlich)\s*(?:MwSt|Mehrwertsteuer|USt)/i.test(t);
+
+  // Dates
+  const valid_from = findDate(t, [
+    /(?:gültig\s+ab|Vertragsbeginn|Lieferbeginn)[^0-9]*([\d]{1,2}\.[\d]{1,2}\.[\d]{4})/i,
+    /(?:ab|von)\s+([\d]{1,2}\.[\d]{1,2}\.[\d]{4})/i,
+  ]);
+  const valid_to = findDate(t, [
+    /(?:gültig\s+bis|Vertragsende|Lieferende)[^0-9]*([\d]{1,2}\.[\d]{1,2}\.[\d]{4})/i,
+    /(?:bis)\s+([\d]{1,2}\.[\d]{1,2}\.[\d]{4})/i,
+  ]);
+
+  return { type, provider, tariff_name, working_price, base_price, grid_working_price, grid_base_price, meter_fee, sewage_price, tax_rate, prices_gross, valid_from, valid_to };
+}
+
+app.post('/api/tariffs/extract', upload.single('document'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Keine Datei hochgeladen' });
+
+  if (req.file.mimetype !== 'application/pdf')
+    return res.status(400).json({ error: 'Nur PDF-Dateien werden unterstützt. Fotos/Scans können nicht automatisch ausgelesen werden.' });
 
   try {
-    const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }]
-    });
+    const pdf = await pdfParse(req.file.buffer);
+    if (!pdf.text || pdf.text.trim().length < 50)
+      return res.status(422).json({ error: 'PDF enthält keinen lesbaren Text (gescanntes Dokument?)' });
 
-    const text = response.content[0].text.trim();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(422).json({ error: 'Keine Tarif-Daten gefunden' });
-
-    const data = JSON.parse(jsonMatch[0]);
+    const data = extractTariffFromText(pdf.text);
     res.json(data);
   } catch(e) {
-    res.status(500).json({ error: 'Extraktion fehlgeschlagen: ' + e.message });
+    res.status(500).json({ error: 'PDF konnte nicht gelesen werden: ' + e.message });
   }
 });
 
