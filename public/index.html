@@ -2,7 +2,9 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Energietracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -491,6 +493,61 @@ textarea { resize: vertical; min-height: 64px; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ── Upload ───────────────────────────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--border2);
+  border-radius: var(--r2);
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text2);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.upload-zone:hover, .upload-zone.drag { border-color: var(--cyan); color: var(--cyan); }
+.upload-zone input[type=file] { display: none; }
+.upload-status { font-size: 12px; margin-top: 6px; }
+
+/* ── Checkbox ─────────────────────────────────────────────────────────────── */
+.checkbox-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.checkbox-row input[type=checkbox] { width: auto; cursor: pointer; accent-color: var(--cyan); }
+.checkbox-row span { font-size: 13px; color: var(--text); }
+
+/* ── Mobile ───────────────────────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  :root { --sidebar-w: 0px; }
+  html, body { overflow: auto; }
+  #app { flex-direction: column; height: auto; min-height: 100vh; }
+  #sidebar { display: none; }
+  #main { width: 100%; }
+  #content { padding: 16px; overflow-y: visible; }
+  #topbar { padding: 0 16px; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .meter-grid { grid-template-columns: 1fr; }
+  .form-grid-2 { grid-template-columns: 1fr; }
+  .form-group.span-2 { grid-column: span 1; }
+  .billing-line { flex-wrap: wrap; gap: 4px; }
+  .billing-line .bl-calc { flex: none; width: 100%; }
+  .range-seg-body { gap: 12px; }
+  .tab-bar { overflow-x: auto; }
+  #mobile-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 50;
+    padding: 6px 0 env(safe-area-inset-bottom, 0);
+  }
+  #content { padding-bottom: 72px; }
+  #modal-box { width: 100%; max-width: 100%; border-radius: 14px 14px 0 0; max-height: 95vh; }
+  #modal-overlay { align-items: flex-end; }
+}
+@media (min-width: 701px) {
+  #mobile-nav { display: none !important; }
+}
 .toast {
   position: fixed;
   bottom: 24px; right: 24px;
@@ -620,6 +677,27 @@ textarea { resize: vertical; min-height: 64px; }
   </div>
 </div>
 
+<!-- Mobile Bottom Nav -->
+<nav id="mobile-nav" style="display:none">
+  <style>
+    #mobile-nav { justify-content: space-around; }
+    .mnav-item { display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 12px;cursor:pointer;color:var(--text3);font-size:10px;font-weight:500;flex:1;border:none;background:none;font-family:'Outfit',sans-serif; }
+    .mnav-item.active { color:var(--cyan); }
+    .mnav-item .mni { font-size:20px; }
+  </style>
+  <button class="mnav-item active" id="mnav-dashboard" onclick="navigate('dashboard')"><span class="mni">◉</span>Dashboard</button>
+  <button class="mnav-item" id="mnav-meters"    onclick="navigate('meters')"><span class="mni">📟</span>Zähler</button>
+  <button class="mnav-item" id="mnav-readings"  onclick="navigate('readings')"><span class="mni">📋</span>Ablesen</button>
+  <button class="mnav-item" id="mnav-billing"   onclick="navigate('billing')"><span class="mni">📊</span>Kosten</button>
+  <button class="mnav-item" id="mnav-more"      onclick="toggleMobileMenu()"><span class="mni">☰</span>Mehr</button>
+</nav>
+
+<!-- Mobile More Menu -->
+<div id="mobile-more" style="display:none;position:fixed;bottom:64px;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);z-index:49;padding:8px">
+  <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:12px 16px" onclick="navigate('properties');toggleMobileMenu()">🏢 Objekte</button>
+  <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:12px 16px" onclick="navigate('tariffs');toggleMobileMenu()">💶 Tarife</button>
+</div>
+
 <!-- Modal -->
 <div id="modal-overlay">
   <div id="modal-box">
@@ -740,6 +818,7 @@ async function navigate(view, propId, meterId) {
   if (propId !== undefined) S.selectedPropertyId = propId;
   if (meterId !== undefined) S.selectedMeterId = meterId;
   setActive(view);
+  updateMobileNav(view);
   await renderView();
   await updateBadges();
 }
@@ -1299,7 +1378,13 @@ function tariffForm(t = {}, meterType) {
   const wp_hint = isWater ? '€/m³ · z.B. 1.95' : 'ct/kWh · z.B. 30.25';
   const gw_hint = isWater ? '' : 'ct/kWh · z.B. 8.50';
 
-  return `<div class="form-grid form-grid-2">
+  return `
+  <div class="upload-zone" onclick="document.getElementById('doc-upload').click()" id="upload-zone">
+    <input type="file" id="doc-upload" accept=".pdf,.jpg,.jpeg,.png,.webp" onchange="extractFromDoc(this)">
+    <div>📄 Vertragsdokument hochladen (PDF, Foto)</div>
+    <div class="upload-status color-muted">Tarif-Daten werden automatisch erkannt</div>
+  </div>
+  <div class="form-grid form-grid-2">
     <div class="form-group">
       <label>Anbieter</label>
       <input id="f-provider" value="${t.provider || ''}" placeholder="z.B. Stadtwerke Musterstadt">
@@ -1378,11 +1463,16 @@ function tariffForm(t = {}, meterType) {
     <div class="form-group">
       <label>Mehrwertsteuer</label>
       <div class="input-unit">
-        <input type="number" id="f-tax" value="${t.tax_rate ?? (isWater ? 7 : 19)}" step="0.1">
+        <input type="number" id="f-tax" value="${t.tax_rate ?? (isWater ? 7 : 19)}" step="0.1" ${t.prices_gross ? 'disabled' : ''}>
         <span class="unit-label">%</span>
       </div>
     </div>
-    <div></div>
+    <div class="form-group" style="justify-content:flex-end">
+      <label class="checkbox-row" style="margin-top:auto;padding-bottom:4px">
+        <input type="checkbox" id="f-gross" ${t.prices_gross ? 'checked' : ''} onchange="document.getElementById('f-tax').disabled=this.checked">
+        <span>Preise bereits inkl. MwSt. (Bruttopreise)</span>
+      </label>
+    </div>
     <div class="form-group">
       <label>Gültig ab</label>
       <input type="date" id="f-vf" value="${t.valid_from || ''}">
@@ -1410,6 +1500,7 @@ function getTariffFormData(meterType) {
     sewage_price: isWater ? (+gv('f-sewage') || 0) : 0,
     other_levies: +gv('f-other') || 0,
     tax_rate: +gv('f-tax') || 19,
+    prices_gross: document.getElementById('f-gross')?.checked ? 1 : 0,
     valid_from: gv('f-vf'), valid_to: gv('f-vt'),
     notes: gv('f-notes')
   };
@@ -1708,6 +1799,64 @@ function renderRangeBillingResult(r) {
       </div>
     </div>
   `;
+}
+
+// ── Document Extraction ───────────────────────────────────────────────────────
+async function extractFromDoc(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const zone = document.getElementById('upload-zone');
+  zone.querySelector('.upload-status').textContent = '⏳ Dokument wird analysiert…';
+  zone.querySelector('.upload-status').className = 'upload-status color-muted';
+
+  const fd = new FormData();
+  fd.append('document', file);
+
+  try {
+    const resp = await fetch('/api/tariffs/extract', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Fehler');
+
+    // Fill form fields
+    if (data.provider)      document.getElementById('f-provider') && (document.getElementById('f-provider').value = data.provider);
+    if (data.tariff_name)   document.getElementById('f-tname')    && (document.getElementById('f-tname').value    = data.tariff_name);
+    if (data.working_price) document.getElementById('f-wp')       && (document.getElementById('f-wp').value       = data.working_price);
+    if (data.base_price)    document.getElementById('f-bp')       && (document.getElementById('f-bp').value       = data.base_price);
+    if (data.tax_rate)      document.getElementById('f-tax')      && (document.getElementById('f-tax').value      = data.tax_rate);
+    if (data.valid_from)    document.getElementById('f-vf')       && (document.getElementById('f-vf').value       = data.valid_from);
+    if (data.valid_to)      document.getElementById('f-vt')       && (document.getElementById('f-vt').value       = data.valid_to);
+    if (data.prices_gross)  {
+      const cb = document.getElementById('f-gross');
+      if (cb) { cb.checked = true; document.getElementById('f-tax').disabled = true; }
+    }
+    // Strom/Gas specific
+    if (document.getElementById('f-gwa') && data.grid_working_price) document.getElementById('f-gwa').value = data.grid_working_price;
+    if (document.getElementById('f-gwb') && data.grid_base_price)    document.getElementById('f-gwb').value = data.grid_base_price;
+    if (document.getElementById('f-mfe') && data.meter_fee)          document.getElementById('f-mfe').value = data.meter_fee;
+    if (document.getElementById('f-other') && data.other_levies)     document.getElementById('f-other').value = data.other_levies;
+    // Wasser specific
+    if (document.getElementById('f-sewage') && data.sewage_price) document.getElementById('f-sewage').value = data.sewage_price;
+
+    zone.querySelector('.upload-status').textContent = '✓ Daten erfolgreich erkannt – bitte prüfen!';
+    zone.querySelector('.upload-status').className = 'upload-status color-green';
+  } catch(e) {
+    zone.querySelector('.upload-status').textContent = '⚠️ ' + e.message;
+    zone.querySelector('.upload-status').className = 'upload-status color-red';
+  }
+}
+
+// ── Mobile Nav ────────────────────────────────────────────────────────────────
+function toggleMobileMenu() {
+  const m = document.getElementById('mobile-more');
+  m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+
+function updateMobileNav(view) {
+  document.querySelectorAll('.mnav-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('mnav-' + view);
+  if (el) el.classList.add('active');
+  const more = document.getElementById('mobile-more');
+  if (more) more.style.display = 'none';
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

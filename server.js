@@ -1,9 +1,13 @@
 const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
+const multer = require('multer');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -59,11 +63,15 @@ db.exec(`
     tax_rate            REAL DEFAULT 19,
     valid_from          TEXT DEFAULT '',
     valid_to            TEXT DEFAULT '',
+    prices_gross        INTEGER DEFAULT 0,
     notes               TEXT DEFAULT '',
     created_at          TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (meter_id) REFERENCES meters(id) ON DELETE CASCADE
   );
 `);
+
+// Migration: add prices_gross to existing databases
+try { db.exec('ALTER TABLE tariffs ADD COLUMN prices_gross INTEGER DEFAULT 0'); } catch(e) {}
 
 // ── Properties ───────────────────────────────────────────────────────────────
 app.get('/api/properties', (req, res) => {
@@ -168,11 +176,11 @@ app.post('/api/tariffs', (req, res) => {
   const r = db.prepare(
     `INSERT INTO tariffs (meter_id,provider,tariff_name,working_price,base_price,
      grid_working_price,grid_base_price,meter_fee,sewage_price,other_levies,
-     tax_rate,valid_from,valid_to,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     tax_rate,valid_from,valid_to,prices_gross,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(f.meter_id, f.provider||'', f.tariff_name||'', +f.working_price||0, +f.base_price||0,
     +f.grid_working_price||0, +f.grid_base_price||0, +f.meter_fee||0,
     +f.sewage_price||0, +f.other_levies||0, +f.tax_rate||19,
-    f.valid_from||'', f.valid_to||'', f.notes||'');
+    f.valid_from||'', f.valid_to||'', f.prices_gross?1:0, f.notes||'');
   res.json({ id: r.lastInsertRowid, ...f });
 });
 
@@ -181,17 +189,68 @@ app.put('/api/tariffs/:id', (req, res) => {
   db.prepare(
     `UPDATE tariffs SET provider=?,tariff_name=?,working_price=?,base_price=?,
      grid_working_price=?,grid_base_price=?,meter_fee=?,sewage_price=?,
-     other_levies=?,tax_rate=?,valid_from=?,valid_to=?,notes=? WHERE id=?`
+     other_levies=?,tax_rate=?,valid_from=?,valid_to=?,prices_gross=?,notes=? WHERE id=?`
   ).run(f.provider||'', f.tariff_name||'', +f.working_price||0, +f.base_price||0,
     +f.grid_working_price||0, +f.grid_base_price||0, +f.meter_fee||0,
     +f.sewage_price||0, +f.other_levies||0, +f.tax_rate||19,
-    f.valid_from||'', f.valid_to||'', f.notes||'', req.params.id);
+    f.valid_from||'', f.valid_to||'', f.prices_gross?1:0, f.notes||'', req.params.id);
   res.json({ success: true });
 });
 
 app.delete('/api/tariffs/:id', (req, res) => {
   db.prepare('DELETE FROM tariffs WHERE id=?').run(req.params.id);
   res.json({ success: true });
+});
+
+// ── Tariff Extraction from Document ─────────────────────────────────────────
+app.post('/api/tariffs/extract', upload.single('document'), async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error: 'ANTHROPIC_API_KEY nicht konfiguriert' });
+  if (!req.file)  return res.status(400).json({ error: 'Keine Datei hochgeladen' });
+
+  const mime = req.file.mimetype;
+  const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+  if (!allowed.includes(mime)) return res.status(400).json({ error: 'Nur PDF, JPG, PNG oder WEBP erlaubt' });
+
+  const contentBlock = mime === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: req.file.buffer.toString('base64') } }
+    : { type: 'image',    source: { type: 'base64', media_type: mime,               data: req.file.buffer.toString('base64') } };
+
+  const prompt = `Analysiere dieses Energievertrags-Dokument und extrahiere die Tarif-Daten.
+Gib NUR ein JSON-Objekt zurück, kein Text davor oder danach:
+{
+  "type": "strom" oder "gas" oder "wasser",
+  "provider": "Anbietername",
+  "tariff_name": "Tarifname",
+  "working_price": Arbeitspreis in ct/kWh (Strom/Gas) oder €/m³ (Wasser) als Zahl,
+  "base_price": Grundpreis pro Monat in € als Zahl,
+  "grid_working_price": Netzentgelt Arbeitspreis ct/kWh als Zahl (0 wenn nicht vorhanden),
+  "grid_base_price": Netzentgelt Grundpreis €/Monat als Zahl (0 wenn nicht vorhanden),
+  "meter_fee": Messstellenentgelt €/Monat als Zahl (0 wenn nicht vorhanden),
+  "sewage_price": Abwasserpreis €/m³ als Zahl (nur für Wasser, sonst 0),
+  "other_levies": Sonstige Umlagen ct/kWh als Zahl (0 wenn nicht vorhanden),
+  "tax_rate": Mehrwertsteuersatz als Zahl (19 für Strom/Gas, 7 für Wasser),
+  "prices_gross": true wenn Preise bereits inkl. MwSt., sonst false,
+  "valid_from": "YYYY-MM-DD" oder "",
+  "valid_to": "YYYY-MM-DD" oder ""
+}
+Wenn ein Wert nicht gefunden wird, nutze 0 oder "".`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: [contentBlock, { type: 'text', text: prompt }] }]
+    });
+
+    const text = response.content[0].text.trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(422).json({ error: 'Keine Tarif-Daten gefunden' });
+
+    const data = JSON.parse(jsonMatch[0]);
+    res.json(data);
+  } catch(e) {
+    res.status(500).json({ error: 'Extraktion fehlgeschlagen: ' + e.message });
+  }
 });
 
 // ── Consumption Calculation ──────────────────────────────────────────────────
@@ -235,10 +294,10 @@ app.get('/api/consumption', (req, res) => {
   }
 
   netto = Object.values(details).reduce((s, d) => s + d.value, 0);
-  const tax   = netto * tariff.tax_rate / 100;
+  const tax    = tariff.prices_gross ? 0 : netto * tariff.tax_rate / 100;
   const brutto = netto + tax;
 
-  res.json({ consumption, days, meter, from: rFrom, to: rTo, tariff, cost: { netto, tax, brutto, taxRate: tariff.tax_rate, details } });
+  res.json({ consumption, days, meter, from: rFrom, to: rTo, tariff, cost: { netto, tax, brutto, taxRate: tariff.prices_gross ? 0 : tariff.tax_rate, details } });
 });
 
 // ── Consumption Range ────────────────────────────────────────────────────────
@@ -298,9 +357,9 @@ app.get('/api/consumption/range', (req, res) => {
           if (tariff.other_levies) details['Sonstige Umlagen'] = consumption * tariff.other_levies / 100;
         }
         const netto  = Object.values(details).reduce((s, v) => s + v, 0);
-        const tax    = netto * tariff.tax_rate / 100;
+        const tax    = tariff.prices_gross ? 0 : netto * tariff.tax_rate / 100;
         const brutto = netto + tax;
-        cost = { netto, tax, brutto, taxRate: tariff.tax_rate, details };
+        cost = { netto, tax, brutto, taxRate: tariff.prices_gross ? 0 : tariff.tax_rate, details };
         totalNetto  += netto;
         totalTax    += tax;
         totalBrutto += brutto;
