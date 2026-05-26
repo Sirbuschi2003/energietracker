@@ -30,14 +30,15 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS meters (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    property_id INTEGER NOT NULL,
-    type        TEXT NOT NULL CHECK(type IN ('strom','gas','wasser')),
-    name        TEXT NOT NULL,
-    meter_number TEXT DEFAULT '',
-    unit        TEXT DEFAULT '',
-    notes       TEXT DEFAULT '',
-    created_at  TEXT DEFAULT (datetime('now','localtime')),
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id       INTEGER NOT NULL,
+    type              TEXT NOT NULL CHECK(type IN ('strom','gas','wasser')),
+    name              TEXT NOT NULL,
+    meter_number      TEXT DEFAULT '',
+    unit              TEXT DEFAULT '',
+    notes             TEXT DEFAULT '',
+    conversion_factor REAL DEFAULT 1.0,
+    created_at        TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
   );
 
@@ -73,8 +74,9 @@ db.exec(`
   );
 `);
 
-// Migration: add prices_gross to existing databases
+// Migrations
 try { db.exec('ALTER TABLE tariffs ADD COLUMN prices_gross INTEGER DEFAULT 0'); } catch(e) {}
+try { db.exec('ALTER TABLE meters ADD COLUMN conversion_factor REAL DEFAULT 1.0'); } catch(e) {}
 
 // ── Properties ───────────────────────────────────────────────────────────────
 app.get('/api/properties', (req, res) => {
@@ -112,19 +114,20 @@ app.get('/api/meters', (req, res) => {
 });
 
 app.post('/api/meters', (req, res) => {
-  const { property_id, type, name, meter_number = '', unit = '', notes = '' } = req.body;
+  const { property_id, type, name, meter_number = '', unit = '', notes = '', conversion_factor = 1.0 } = req.body;
   if (!property_id || !type || !name) return res.status(400).json({ error: 'Pflichtfelder fehlen' });
   const defaultUnit = type === 'strom' ? 'kWh' : 'm³';
+  const cf = +conversion_factor || 1.0;
   const r = db.prepare(
-    'INSERT INTO meters (property_id,type,name,meter_number,unit,notes) VALUES (?,?,?,?,?,?)'
-  ).run(property_id, type, name, meter_number, unit || defaultUnit, notes);
-  res.json({ id: r.lastInsertRowid, property_id, type, name, meter_number, unit: unit || defaultUnit, notes });
+    'INSERT INTO meters (property_id,type,name,meter_number,unit,notes,conversion_factor) VALUES (?,?,?,?,?,?,?)'
+  ).run(property_id, type, name, meter_number, unit || defaultUnit, notes, cf);
+  res.json({ id: r.lastInsertRowid, property_id, type, name, meter_number, unit: unit || defaultUnit, notes, conversion_factor: cf });
 });
 
 app.put('/api/meters/:id', (req, res) => {
-  const { type, name, meter_number = '', unit = '', notes = '' } = req.body;
-  db.prepare('UPDATE meters SET type=?,name=?,meter_number=?,unit=?,notes=? WHERE id=?')
-    .run(type, name, meter_number, unit, notes, req.params.id);
+  const { type, name, meter_number = '', unit = '', notes = '', conversion_factor = 1.0 } = req.body;
+  db.prepare('UPDATE meters SET type=?,name=?,meter_number=?,unit=?,notes=?,conversion_factor=? WHERE id=?')
+    .run(type, name, meter_number, unit, notes, +conversion_factor || 1.0, req.params.id);
   res.json({ success: true });
 });
 
@@ -426,6 +429,13 @@ app.get('/api/consumption', (req, res) => {
 
   if (!tariff) return res.json({ consumption, days, meter, from: rFrom, to: rTo, tariff: null, cost: null });
 
+  const cf = (meter.type === 'gas' && meter.conversion_factor && meter.conversion_factor !== 1.0)
+    ? meter.conversion_factor : 1.0;
+  const consumptionKwh = consumption * cf;
+  const cfLabel = cf !== 1.0
+    ? `${consumption.toFixed(3)} m³ × ${cf} = ${consumptionKwh.toFixed(3)} kWh`
+    : null;
+
   let netto = 0;
   const details = {};
 
@@ -435,12 +445,13 @@ app.get('/api/consumption', (req, res) => {
     details['Grundgebühr (anteilig)'] = { value: tariff.base_price * days / 30,            unit: `${tariff.base_price} €/Mon × ${days} Tage` };
     if (tariff.other_levies) details['Sonstiges'] = { value: consumption * tariff.other_levies, unit: '' };
   } else {
-    details['Arbeitspreis']              = { value: consumption * tariff.working_price / 100,        unit: `${consumption.toFixed(3)} ${meter.unit} × ${tariff.working_price} ct` };
-    details['Grundpreis (anteilig)']     = { value: tariff.base_price * days / 30,                  unit: `${tariff.base_price} €/Mon × ${days} Tage` };
-    details['Netzentgelt Arbeit']        = { value: consumption * tariff.grid_working_price / 100,   unit: `${consumption.toFixed(3)} ${meter.unit} × ${tariff.grid_working_price} ct` };
-    details['Netzentgelt Grundpreis']    = { value: tariff.grid_base_price * days / 30,              unit: `${tariff.grid_base_price} €/Mon × ${days} Tage` };
-    details['Messstellenentgelt']        = { value: tariff.meter_fee * days / 30,                    unit: `${tariff.meter_fee} €/Mon × ${days} Tage` };
-    if (tariff.other_levies) details['Sonstige Umlagen'] = { value: consumption * tariff.other_levies / 100, unit: `${consumption.toFixed(3)} ${meter.unit} × ${tariff.other_levies} ct` };
+    const billUnit = cf !== 1.0 ? `${consumptionKwh.toFixed(3)} kWh` : `${consumption.toFixed(3)} ${meter.unit}`;
+    details['Arbeitspreis']              = { value: consumptionKwh * tariff.working_price / 100,        unit: `${cfLabel || billUnit} × ${tariff.working_price} ct/kWh` };
+    details['Grundpreis (anteilig)']     = { value: tariff.base_price * days / 30,                      unit: `${tariff.base_price} €/Mon × ${days} Tage` };
+    details['Netzentgelt Arbeit']        = { value: consumptionKwh * tariff.grid_working_price / 100,   unit: `${billUnit} × ${tariff.grid_working_price} ct/kWh` };
+    details['Netzentgelt Grundpreis']    = { value: tariff.grid_base_price * days / 30,                  unit: `${tariff.grid_base_price} €/Mon × ${days} Tage` };
+    details['Messstellenentgelt']        = { value: tariff.meter_fee * days / 30,                        unit: `${tariff.meter_fee} €/Mon × ${days} Tage` };
+    if (tariff.other_levies) details['Sonstige Umlagen'] = { value: consumptionKwh * tariff.other_levies / 100, unit: `${billUnit} × ${tariff.other_levies} ct/kWh` };
   }
 
   netto = Object.values(details).reduce((s, d) => s + d.value, 0);
@@ -493,18 +504,21 @@ app.get('/api/consumption/range', (req, res) => {
       let cost = null;
       if (tariff) {
         const details = {};
+        const cf = (meter.type === 'gas' && meter.conversion_factor && meter.conversion_factor !== 1.0)
+          ? meter.conversion_factor : 1.0;
+        const consumptionKwh = consumption * cf;
         if (meter.type === 'wasser') {
           details['Frischwasser']  = consumption * tariff.working_price;
           details['Abwasser']      = consumption * tariff.sewage_price;
           details['Grundgebühr']   = tariff.base_price * days / 30;
           if (tariff.other_levies) details['Sonstiges'] = consumption * tariff.other_levies;
         } else {
-          details['Arbeitspreis']         = consumption * tariff.working_price / 100;
+          details['Arbeitspreis']         = consumptionKwh * tariff.working_price / 100;
           details['Grundpreis']           = tariff.base_price * days / 30;
-          details['Netzentgelt Arbeit']   = consumption * tariff.grid_working_price / 100;
+          details['Netzentgelt Arbeit']   = consumptionKwh * tariff.grid_working_price / 100;
           details['Netzentgelt Grund']    = tariff.grid_base_price * days / 30;
           details['Messstellenentgelt']   = tariff.meter_fee * days / 30;
-          if (tariff.other_levies) details['Sonstige Umlagen'] = consumption * tariff.other_levies / 100;
+          if (tariff.other_levies) details['Sonstige Umlagen'] = consumptionKwh * tariff.other_levies / 100;
         }
         const netto  = Object.values(details).reduce((s, v) => s + v, 0);
         const tax    = tariff.prices_gross ? 0 : netto * tariff.tax_rate / 100;
