@@ -8,6 +8,11 @@
 <title>Energietracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#22d3ee">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="apple-touch-icon" href="/icons/icon.svg">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -625,6 +630,30 @@ textarea { resize: vertical; min-height: 64px; }
 .range-total-vals { display: flex; gap: 32px; align-items: center; flex-wrap: wrap; }
 .range-total-cons { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; color: var(--text); }
 .range-total-cost { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; color: var(--cyan); }
+
+/* ── Chart ─────────────────────────────────────────────────────────────────── */
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r2); padding: 20px; margin-bottom: 20px; }
+.chart-wrap { position: relative; height: 200px; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+.chart-title-text { font-size: 13px; font-weight: 600; color: var(--text); }
+.chart-year-sel { background: var(--surface3); border: 1px solid var(--border2); color: var(--text); font-family: 'Outfit', sans-serif; font-size: 12px; padding: 4px 8px; border-radius: var(--r); outline: none; cursor: pointer; }
+
+/* ── Forecast ─────────────────────────────────────────────────────────────── */
+.forecast-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 4px; }
+.forecast-item { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r); padding: 14px 16px; }
+.forecast-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+.forecast-val { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.forecast-sub { font-size: 11px; color: var(--text3); margin-top: 3px; }
+
+/* ── Settings ─────────────────────────────────────────────────────────────── */
+.settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.settings-row:last-child { border-bottom: none; }
+.s-title { font-size: 14px; font-weight: 500; color: var(--text); }
+.s-desc { font-size: 12px; color: var(--text2); margin-top: 3px; }
+
+/* ── Dashboard delta ─────────────────────────────────────────────────────── */
+.td-delta { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text3); white-space: nowrap; }
+.td-delta.pos { color: var(--green); }
 </style>
 </head>
 <body>
@@ -661,8 +690,12 @@ textarea { resize: vertical; min-height: 64px; }
       <div class="nav-item" onclick="navigate('billing')" id="nav-billing">
         <span class="nav-icon">📊</span> Abrechnung
       </div>
+      <div class="nav-group-label">System</div>
+      <div class="nav-item" onclick="navigate('settings')" id="nav-settings">
+        <span class="nav-icon">⚙️</span> Einstellungen
+      </div>
     </div>
-    <div class="sidebar-footer">v1.0 · SQLite Backend</div>
+    <div class="sidebar-footer">v1.1 · SQLite Backend</div>
   </nav>
 
   <!-- Main -->
@@ -696,6 +729,7 @@ textarea { resize: vertical; min-height: 64px; }
 <div id="mobile-more" style="display:none;position:fixed;bottom:64px;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);z-index:49;padding:8px">
   <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:12px 16px" onclick="navigate('properties');toggleMobileMenu()">🏢 Objekte</button>
   <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:12px 16px" onclick="navigate('tariffs');toggleMobileMenu()">💶 Tarife</button>
+  <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:12px 16px" onclick="navigate('settings');toggleMobileMenu()">⚙️ Einstellungen</button>
 </div>
 
 <!-- Modal -->
@@ -713,8 +747,13 @@ textarea { resize: vertical; min-height: 64px; }
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
 <script>
 'use strict';
+
+// ── Charts ───────────────────────────────────────────────────────────────────
+const _charts = {};
+function destroyChart(id) { if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; } }
 
 // ── State ────────────────────────────────────────────────────────────────────
 const S = {
@@ -814,6 +853,7 @@ function gv(id) {
 
 // ── Navigate ─────────────────────────────────────────────────────────────────
 async function navigate(view, propId, meterId) {
+  Object.keys(_charts).forEach(id => destroyChart(id));
   S.view = view;
   if (propId !== undefined) S.selectedPropertyId = propId;
   if (meterId !== undefined) S.selectedMeterId = meterId;
@@ -831,6 +871,7 @@ async function renderView() {
   if (v === 'readings')    return renderReadings();
   if (v === 'tariffs')     return renderTariffs();
   if (v === 'billing')     return renderBilling();
+  if (v === 'settings')    return renderSettings();
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
@@ -842,15 +883,22 @@ async function renderDashboard() {
   S.dashboardData = d;
 
   const latestRows = d.latest.length
-    ? d.latest.map(r => `
-      <tr>
-        <td>${r.property_name}</td>
-        <td>${typeBadge(r.type)}</td>
-        <td>${r.meter_name}</td>
-        <td class="mono">${fmt.num(r.value)} <span class="color-muted">${r.unit}</span></td>
-        <td>${fmt.date(r.date)}</td>
-      </tr>`).join('')
-    : `<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:30px">
+    ? d.latest.map(r => {
+        const delta = r.prev ? r.value - r.prev.value : null;
+        const days  = r.prev ? Math.round((new Date(r.date) - new Date(r.prev.date)) / 86400000) : null;
+        const deltaHtml = delta !== null && delta >= 0
+          ? `<td class="td-delta pos">+${fmt.num(delta)} ${r.unit}<br><span style="font-size:10px;color:var(--text3)">${days}d</span></td>`
+          : `<td class="td-delta">–</td>`;
+        return `<tr onclick="navigate('readings',${r.property_id},${r.meter_id})" style="cursor:pointer">
+          <td>${r.property_name}</td>
+          <td>${typeBadge(r.type)}</td>
+          <td>${r.meter_name}</td>
+          <td class="mono">${fmt.num(r.value)} <span class="color-muted">${r.unit}</span></td>
+          ${deltaHtml}
+          <td>${fmt.date(r.date)}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:30px">
         Noch keine Ablesungen vorhanden
        </td></tr>`;
 
@@ -877,14 +925,14 @@ async function renderDashboard() {
       <div class="card-header">
         <div>
           <div class="card-title">Aktuelle Zählerstände</div>
-          <div class="card-sub">Jeweils letzte Ablesung pro Zähler</div>
+          <div class="card-sub">Letzte Ablesung · Klick öffnet Ablesungshistorie</div>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="navigate('readings')">+ Ablesung</button>
+        <button class="btn btn-primary btn-sm" onclick="showAddReading()">+ Ablesung</button>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>Objekt</th><th>Typ</th><th>Zähler</th><th>Stand</th><th>Datum</th>
+            <th>Objekt</th><th>Typ</th><th>Zähler</th><th>Stand</th><th>Verbrauch (Δ)</th><th>Datum</th>
           </tr></thead>
           <tbody>${latestRows}</tbody>
         </table>
@@ -1220,6 +1268,15 @@ function renderReadingsTable(meter, readings) {
         <button class="btn btn-primary btn-sm" onclick="showAddReading()">+ Ablesung eintragen</button>
       </div>
     </div>
+    <div class="chart-card" id="chart-section" style="display:none">
+      <div class="chart-head">
+        <div class="chart-title-text">Monatlicher Verbrauch</div>
+        <select class="chart-year-sel" id="chart-year" onchange="reloadMeterChart(${meter.id})">
+          ${[0,1,2].map(i => { const y = new Date().getFullYear()-i; return `<option value="${y}" ${i===0?'selected':''}>${y}</option>`; }).join('')}
+        </select>
+      </div>
+      <div class="chart-wrap"><canvas id="monthly-chart"></canvas></div>
+    </div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Datum</th><th>Zählerstand</th><th>Verbrauch</th><th>Zeitraum</th><th>Notiz</th><th></th></tr></thead>
@@ -1227,6 +1284,7 @@ function renderReadingsTable(meter, readings) {
       </table>
     </div>
   `);
+  initMeterChart(meter);
 }
 
 function renderAllReadings(readings) {
@@ -1296,10 +1354,13 @@ function showAddReading() {
   openModal('Ablesung eintragen', readingForm(), async () => {
     const val = gv('f-value');
     if (!val) { toast('Zählerstand erforderlich', 'err'); return; }
-    await POST('/api/readings', {
-      meter_id: +gv('f-meterid'), date: gv('f-date'),
-      value: parseFloat(val), notes: gv('f-notes')
-    });
+    const meterId = +gv('f-meterid');
+    const newVal  = parseFloat(val);
+    const prevList = await GET(`/api/readings?meter_id=${meterId}&limit=1`);
+    if (prevList.length && newVal < prevList[0].value) {
+      if (!confirm(`⚠️ Neuer Wert (${newVal}) ist kleiner als der letzte Wert (${prevList[0].value}). Trotzdem speichern?`)) return;
+    }
+    await POST('/api/readings', { meter_id: meterId, date: gv('f-date'), value: newVal, notes: gv('f-notes') });
     toast('Ablesung gespeichert ✓'); closeModal(); renderReadings();
   });
 }
@@ -1580,6 +1641,8 @@ async function renderBilling(tab) {
     <div class="tab-bar">
       <button class="tab-btn ${activeTab==='single'?'active':''}" onclick="renderBilling('single')">Einzelabrechnung</button>
       <button class="tab-btn ${activeTab==='range'?'active':''}" onclick="renderBilling('range')">Periodenabrechnung</button>
+      <button class="tab-btn ${activeTab==='compare'?'active':''}" onclick="renderBilling('compare')">Jahresvergleich</button>
+      <button class="tab-btn ${activeTab==='forecast'?'active':''}" onclick="renderBilling('forecast')">Prognose</button>
     </div>
 
     ${activeTab === 'single' ? `
@@ -1634,6 +1697,42 @@ async function renderBilling(tab) {
       </div>
     </div>
     <div id="range-result"></div>
+    ` : activeTab === 'compare' ? `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><div class="card-title">Jahr-für-Jahr-Vergleich</div></div>
+      <div class="form-grid form-grid-2">
+        <div class="form-group span-2">
+          <label>Zähler</label>
+          <select id="cmp-meter">${meterOpts}</select>
+        </div>
+        <div class="form-group">
+          <label>Jahr 1</label>
+          <select id="cmp-y1">${yearOpts(0)}</select>
+        </div>
+        <div class="form-group">
+          <label>Jahr 2</label>
+          <select id="cmp-y2">${yearOpts(1)}</select>
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-primary" onclick="calcYearComparison()">📊 Vergleich anzeigen</button>
+      </div>
+    </div>
+    <div id="compare-result"></div>
+    ` : `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><div class="card-title">Jahresprognose</div></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Zähler</label>
+          <select id="fore-meter">${meterOpts}</select>
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-primary" onclick="calcForecast()">📈 Prognose berechnen</button>
+      </div>
+    </div>
+    <div id="forecast-result"></div>
     `}
   `);
 
@@ -1882,6 +1981,231 @@ function updateMobileNav(view) {
   if (el) el.classList.add('active');
   const more = document.getElementById('mobile-more');
   if (more) more.style.display = 'none';
+}
+
+// ── Chart helpers ─────────────────────────────────────────────────────────────
+const MONTH_LABELS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+const TYPE_COLOR   = { strom: '#f59e0b', gas: '#60a5fa', wasser: '#22d3ee' };
+const CHART_OPTS   = (unit, hasRight) => ({
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } } },
+  scales: {
+    x: { ticks: { color: '#94a3b8', font:{size:11} }, grid: { color: '#1e2d45' } },
+    y: { ticks: { color: '#94a3b8', font:{size:11} }, grid: { color: '#1e2d45' },
+         title: { display: true, text: unit, color: '#94a3b8', font:{size:10} } },
+    ...(hasRight ? { y2: { position:'right', ticks:{color:'#34d399',font:{size:11}},
+        grid:{display:false}, title:{display:true,text:'€',color:'#34d399',font:{size:10}} } } : {})
+  }
+});
+
+async function initMeterChart(meter) {
+  try {
+    const yearEl = document.getElementById('chart-year');
+    const year = yearEl ? +yearEl.value : new Date().getFullYear();
+    const data = await GET(`/api/chart/monthly?meter_id=${meter.id}&year=${year}`);
+    const section = document.getElementById('chart-section');
+    if (!section || !data.months.some(m => m.consumption !== null)) return;
+    section.style.display = 'block';
+    const color  = TYPE_COLOR[meter.type] || '#22d3ee';
+    const hasCost = data.months.some(m => m.cost !== null);
+    destroyChart('monthly-chart');
+    _charts['monthly-chart'] = new Chart(document.getElementById('monthly-chart'), {
+      type: 'bar',
+      data: {
+        labels: MONTH_LABELS,
+        datasets: [
+          { label: `Verbrauch (${data.unit})`, data: data.months.map(m=>m.consumption),
+            backgroundColor: color+'66', borderColor: color, borderWidth: 1, yAxisID:'y' },
+          ...(hasCost ? [{ label: 'Kosten (€)', data: data.months.map(m=>m.cost),
+            backgroundColor: '#34d39933', borderColor: '#34d399', borderWidth: 2,
+            type: 'line', tension: 0.3, pointRadius: 3, yAxisID:'y2' }] : [])
+        ]
+      },
+      options: CHART_OPTS(data.unit, hasCost)
+    });
+  } catch(e) {}
+}
+
+async function reloadMeterChart(meterId) {
+  const m = S.allMeters.find(x => x.id === meterId);
+  if (m) await initMeterChart(m);
+}
+
+// ── Year comparison ───────────────────────────────────────────────────────────
+function yearOpts(selectedOffset) {
+  const cur = new Date().getFullYear();
+  return [0,1,2,3].map(i => {
+    const y = cur - i;
+    return `<option value="${y}" ${i===selectedOffset?'selected':''}>${y}</option>`;
+  }).join('');
+}
+
+async function calcYearComparison() {
+  const mid = gv('cmp-meter'), y1 = +gv('cmp-y1'), y2 = +gv('cmp-y2');
+  if (!mid) { toast('Bitte Zähler wählen','err'); return; }
+  const [d1, d2] = await Promise.all([
+    GET(`/api/chart/monthly?meter_id=${mid}&year=${y1}`),
+    GET(`/api/chart/monthly?meter_id=${mid}&year=${y2}`)
+  ]);
+  const el = document.getElementById('compare-result');
+  el.innerHTML = `<div class="chart-card"><div class="chart-head"><div class="chart-title-text">${d1.meter.name} · ${y1} vs. ${y2}</div></div><div class="chart-wrap"><canvas id="compare-chart"></canvas></div></div><div class="forecast-grid" style="margin-top:12px" id="compare-totals"></div>`;
+  const color = TYPE_COLOR[d1.meter.type] || '#22d3ee';
+  destroyChart('compare-chart');
+  _charts['compare-chart'] = new Chart(document.getElementById('compare-chart'), {
+    type: 'bar',
+    data: {
+      labels: MONTH_LABELS,
+      datasets: [
+        { label: `${y1} (${d1.unit})`, data: d1.months.map(m=>m.consumption), backgroundColor: color+'88', borderColor: color, borderWidth: 1 },
+        { label: `${y2} (${d2.unit})`, data: d2.months.map(m=>m.consumption), backgroundColor: '#94a3b833', borderColor: '#94a3b8', borderWidth: 1 }
+      ]
+    },
+    options: CHART_OPTS(d1.unit, false)
+  });
+  const tot1 = d1.months.reduce((s,m) => s+(m.consumption||0), 0);
+  const tot2 = d2.months.reduce((s,m) => s+(m.consumption||0), 0);
+  const diff = tot1 - tot2;
+  const cost1 = d1.months.reduce((s,m) => s+(m.cost||0), 0);
+  const cost2 = d2.months.reduce((s,m) => s+(m.cost||0), 0);
+  document.getElementById('compare-totals').innerHTML = `
+    <div class="forecast-item"><div class="forecast-label">Gesamt ${y1}</div><div class="forecast-val color-${d1.meter.type}">${fmt.num(tot1)}</div><div class="forecast-sub">${d1.unit}${cost1>0?' · '+fmt.money(cost1):''}</div></div>
+    <div class="forecast-item"><div class="forecast-label">Gesamt ${y2}</div><div class="forecast-val">${fmt.num(tot2)}</div><div class="forecast-sub">${d2.unit}${cost2>0?' · '+fmt.money(cost2):''}</div></div>
+    <div class="forecast-item"><div class="forecast-label">Differenz</div>
+      <div class="forecast-val" style="color:${diff<0?'var(--green)':diff>0?'var(--red)':'var(--text)'}">${diff>0?'+':''}${fmt.num(diff)}</div>
+      <div class="forecast-sub">${d1.unit} ${diff<0?'weniger':'mehr'} als ${y2}</div></div>`;
+}
+
+// ── Forecast ──────────────────────────────────────────────────────────────────
+async function calcForecast() {
+  const mid = gv('fore-meter');
+  if (!mid) { toast('Bitte Zähler wählen','err'); return; }
+  const year = new Date().getFullYear();
+  const data = await GET(`/api/chart/monthly?meter_id=${mid}&year=${year}`);
+  const el = document.getElementById('forecast-result');
+  const curMonth = new Date().getMonth();
+  const filled = data.months.slice(0, curMonth+1).filter(m => m.consumption !== null);
+  if (!filled.length) {
+    el.innerHTML = `<div class="card" style="text-align:center;padding:30px;color:var(--text2)">Keine Verbrauchsdaten für ${year} vorhanden.</div>`;
+    return;
+  }
+  const soFar     = filled.reduce((s,m) => s+m.consumption, 0);
+  const costFilled= filled.filter(m => m.cost !== null);
+  const costSoFar = costFilled.reduce((s,m) => s+m.cost, 0);
+  const avg       = soFar / filled.length;
+  const left      = 12 - (curMonth+1);
+  const projected = soFar + avg * left;
+  const avgCost   = costFilled.length ? costSoFar / costFilled.length : null;
+  const projCost  = avgCost ? costSoFar + avgCost * left : null;
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div><div class="card-title">Prognose ${year} · ${data.meter.name}</div>
+        <div class="card-sub">Basis: ${filled.length} Monat(e) · Ø ${fmt.num(avg)} ${data.unit}/Monat</div></div>
+      </div>
+      <div class="forecast-grid">
+        <div class="forecast-item"><div class="forecast-label">Verbrauch bisher</div><div class="forecast-val color-${data.meter.type}">${fmt.num(soFar)}</div><div class="forecast-sub">${data.unit} in ${filled.length} Monaten</div></div>
+        <div class="forecast-item"><div class="forecast-label">Hochrechnung Jahr</div><div class="forecast-val">${fmt.num(projected)}</div><div class="forecast-sub">${data.unit} gesamt</div></div>
+        ${projCost ? `<div class="forecast-item"><div class="forecast-label">Hochrechnung Kosten</div><div class="forecast-val color-green">${fmt.money(projCost)}</div><div class="forecast-sub">Brutto Jahreskosten</div></div>
+        <div class="forecast-item"><div class="forecast-label">Ø Monatskosten</div><div class="forecast-val">${fmt.money(avgCost)}</div><div class="forecast-sub">brutto</div></div>` : ''}
+      </div>
+    </div>`;
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+function renderSettings() {
+  setBreadcrumb('Einstellungen');
+  setTopActions('');
+  setContent(`
+    <div class="page-header">
+      <div class="page-title">Einstellungen</div>
+      <div class="page-desc">Datensicherung, Export und Import</div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><div class="card-title">💾 Datensicherung</div></div>
+      <div class="settings-row">
+        <div><div class="s-title">Datenbank herunterladen</div><div class="s-desc">Vollständiges SQLite-Backup aller Daten</div></div>
+        <a href="/api/backup" class="btn btn-secondary btn-sm" style="white-space:nowrap">⬇ Backup</a>
+      </div>
+      <div class="settings-row">
+        <div><div class="s-title">Datenbank wiederherstellen</div><div class="s-desc">⚠️ Alle aktuellen Daten werden überschrieben. Der Server startet automatisch neu.</div></div>
+        <label class="btn btn-danger btn-sm" style="cursor:pointer;white-space:nowrap">
+          ⬆ Wiederherstellen
+          <input type="file" accept=".db" style="display:none" onchange="doRestore(this)">
+        </label>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><div class="card-title">📤 Export</div></div>
+      <div class="settings-row">
+        <div><div class="s-title">Alle Ablesungen exportieren</div><div class="s-desc">CSV-Datei mit allen Ablesungen (Excel-kompatibel mit UTF-8 BOM)</div></div>
+        <a href="/api/export/readings" class="btn btn-secondary btn-sm" style="white-space:nowrap">⬇ CSV</a>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><div class="card-title">📥 Import</div></div>
+      <div class="settings-row">
+        <div><div class="s-title">Ablesungen importieren</div>
+          <div class="s-desc">CSV-Format: <span class="mono" style="font-size:11px">Datum, Objekt, Zähler, Stand, Einheit, Notiz</span><br>Objekt- und Zählerbezeichnungen müssen exakt übereinstimmen.</div></div>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap">
+          ⬆ CSV importieren
+          <input type="file" accept=".csv,.txt" style="display:none" onchange="doImportCSV(this)">
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">ℹ️ App-Info</div></div>
+      <div class="settings-row">
+        <div class="s-title">Version</div><div class="mono color-muted">1.1.0</div>
+      </div>
+      <div class="settings-row">
+        <div class="s-title">Datenbank</div><div class="mono color-muted" style="font-size:12px">/data/energietracker.db</div>
+      </div>
+      <div class="settings-row">
+        <div class="s-title">App installieren</div>
+        <div class="s-desc">Über den Browser-Menüpunkt „Zum Startbildschirm hinzufügen" (iOS) oder das Installations-Icon in der Adressleiste (Android/Chrome)</div>
+      </div>
+    </div>
+  `);
+}
+
+async function doRestore(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!confirm('Achtung: Alle aktuellen Daten werden durch das Backup ersetzt und der Server startet neu. Fortfahren?')) { input.value=''; return; }
+  const fd = new FormData();
+  fd.append('database', file);
+  try {
+    toast('Wird wiederhergestellt…');
+    const r = await fetch('/api/restore', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    toast('Wiederhergestellt! Server startet neu…');
+    setTimeout(() => location.reload(), 4000);
+  } catch(e) { toast('Fehler: ' + e.message, 'err'); }
+}
+
+async function doImportCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('csv', file);
+  try {
+    toast('Importiere…');
+    const r = await fetch('/api/import/readings', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    toast(`Import abgeschlossen: ${d.imported} importiert, ${d.skipped} übersprungen ✓`);
+    input.value = '';
+  } catch(e) { toast('Fehler: ' + e.message, 'err'); }
+}
+
+// ── Service Worker ────────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

@@ -1,0 +1,14 @@
+{
+  "name": "Energietracker",
+  "short_name": "Energie",
+  "description": "Zählerstandsverwaltung für Strom, Gas und Wasser",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d14",
+  "theme_color": "#22d3ee",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

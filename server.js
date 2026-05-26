@@ -561,7 +561,99 @@ app.get('/api/dashboard', (req, res) => {
     WHERE r.id=(SELECT id FROM readings WHERE meter_id=r.meter_id ORDER BY date DESC LIMIT 1)
     ORDER BY p.name,m.type,m.name
   `).all();
-  res.json({ stats, latest });
+  const getPrev = db.prepare('SELECT * FROM readings WHERE meter_id=? AND date<? ORDER BY date DESC LIMIT 1');
+  const latestWithDelta = latest.map(r => ({ ...r, prev: getPrev.get(r.meter_id, r.date) || null }));
+  res.json({ stats, latest: latestWithDelta });
+});
+
+// ── Backup / Restore ─────────────────────────────────────────────────────────
+app.get('/api/backup', async (req, res) => {
+  const bp = tmpFile('.db');
+  try {
+    await db.backup(bp);
+    res.download(bp, `et-backup-${new Date().toISOString().slice(0,10)}.db`, () => {
+      try { fs.unlinkSync(bp); } catch(e) {}
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/restore', upload.single('database'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Keine Datei' });
+  if (!req.file.buffer.slice(0,16).toString().startsWith('SQLite format 3'))
+    return res.status(400).json({ error: 'Ungültige Datenbankdatei' });
+  fs.writeFileSync('/data/energietracker.db', req.file.buffer);
+  res.json({ ok: true });
+  setTimeout(() => process.exit(0), 500);
+});
+
+// ── CSV Export / Import ──────────────────────────────────────────────────────
+app.get('/api/export/readings', (req, res) => {
+  const { meter_id } = req.query;
+  const q = s => `"${String(s||'').replace(/"/g,'""')}"`;
+  const rows = meter_id
+    ? db.prepare('SELECT r.date,p.name as prop,m.name as meter,r.value,m.unit,r.notes FROM readings r JOIN meters m ON r.meter_id=m.id JOIN properties p ON m.property_id=p.id WHERE r.meter_id=? ORDER BY r.date').all(meter_id)
+    : db.prepare('SELECT r.date,p.name as prop,m.name as meter,r.value,m.unit,r.notes FROM readings r JOIN meters m ON r.meter_id=m.id JOIN properties p ON m.property_id=p.id ORDER BY p.name,m.name,r.date').all();
+  const csv = ['Datum,Objekt,Zähler,Stand,Einheit,Notiz',
+    ...rows.map(r => [r.date,q(r.prop),q(r.meter),r.value,r.unit,q(r.notes)].join(','))
+  ].join('\r\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="ablesungen-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.send('﻿' + csv);
+});
+
+app.post('/api/import/readings', upload.single('csv'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Keine Datei' });
+  const text = req.file.buffer.toString('utf8').replace(/^﻿/, '');
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return res.status(400).json({ error: 'Datei leer' });
+  const parseLine = l => {
+    const c=[]; let s='', iq=false;
+    for(const ch of l){if(ch==='"'){iq=!iq}else if(ch===','&&!iq){c.push(s);s=''}else s+=ch}
+    c.push(s); return c;
+  };
+  const findM = db.prepare('SELECT m.id FROM meters m JOIN properties p ON m.property_id=p.id WHERE p.name=? AND m.name=?');
+  const ins   = db.prepare('INSERT OR IGNORE INTO readings (meter_id,date,value,notes) VALUES (?,?,?,?)');
+  let imp=0, sk=0;
+  db.transaction(() => {
+    for(let i=1;i<lines.length;i++){
+      const c=parseLine(lines[i]);
+      if(c.length<4){sk++;continue;}
+      const m=findM.get(c[1],c[2]);
+      if(!m||!c[0]||isNaN(+c[3])){sk++;continue;}
+      ins.run(m.id,c[0],+c[3],c[5]||''); imp++;
+    }
+  })();
+  res.json({ imported: imp, skipped: sk });
+});
+
+// ── Monthly Chart Data ────────────────────────────────────────────────────────
+app.get('/api/chart/monthly', (req, res) => {
+  const { meter_id, year } = req.query;
+  if (!meter_id) return res.status(400).json({ error: 'meter_id fehlt' });
+  const y = parseInt(year) || new Date().getFullYear();
+  const meter = db.prepare('SELECT * FROM meters WHERE id=?').get(meter_id);
+  if (!meter) return res.status(404).json({ error: 'Nicht gefunden' });
+  const cf = (meter.type==='gas' && meter.conversion_factor && meter.conversion_factor!==1.0) ? meter.conversion_factor : 1.0;
+  const readings = db.prepare('SELECT * FROM readings WHERE meter_id=? AND date BETWEEN ? AND ? ORDER BY date').all(meter_id, `${y-1}-11-01`, `${y}-12-31`);
+  const months = Array.from({length:12}, (_,i) => ({month:i+1, consumption:null, cost:null}));
+  for(let i=0; i<readings.length-1; i++){
+    const a=readings[i], b=readings[i+1];
+    const bD=new Date(b.date);
+    if(bD.getFullYear()!==y) continue;
+    const mi=bD.getMonth();
+    const cons=b.value-a.value;
+    if(cons<0) continue;
+    months[mi].consumption=(months[mi].consumption||0)+cons;
+    const tariff=db.prepare(`SELECT * FROM tariffs WHERE meter_id=? AND (valid_from=''OR valid_from<=?) AND (valid_to=''OR valid_to>=?) ORDER BY valid_from DESC LIMIT 1`).get(meter_id,b.date,a.date)||db.prepare('SELECT * FROM tariffs WHERE meter_id=? ORDER BY created_at DESC LIMIT 1').get(meter_id);
+    if(tariff){
+      const ck=cons*cf, days=Math.max(1,Math.round((new Date(b.date)-new Date(a.date))/86400000));
+      let n = meter.type==='wasser'
+        ? cons*tariff.working_price+cons*tariff.sewage_price+tariff.base_price*days/30
+        : ck*tariff.working_price/100+tariff.base_price*days/30+ck*tariff.grid_working_price/100+tariff.grid_base_price*days/30+tariff.meter_fee*days/30;
+      months[mi].cost=(months[mi].cost||0)+(tariff.prices_gross?n:n*(1+tariff.tax_rate/100));
+    }
+  }
+  res.json({meter, year:y, unit:meter.unit, months});
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`✓ Energietracker läuft auf Port ${PORT}`));
